@@ -12,11 +12,14 @@ export default function PriceChartInner({ prices }: PriceChartInnerProps) {
   const isUp = lastPrice >= firstPrice;
   const color = isUp ? "#16a34a" : "#dc2626";
 
-  // Add month labels
-  const dataWithMonths = prices.map((p) => ({
-    ...p,
-    month: new Date(p.date).toLocaleDateString("en-US", { month: "short" }),
-  }));
+  // Add month labels - only show first occurrence of each month
+  const seenMonths = new Set<string>();
+  const dataWithMonths = prices.map((p) => {
+    const month = new Date(p.date).toLocaleDateString("en-US", { month: "short" });
+    const showLabel = !seenMonths.has(month);
+    seenMonths.add(month);
+    return { ...p, month: showLabel ? month : "" };
+  });
 
   return (
     <div className="mt-4">
@@ -34,7 +37,8 @@ export default function PriceChartInner({ prices }: PriceChartInnerProps) {
             axisLine={false}
             tickLine={false}
             tick={{ fontSize: 10, fill: "#9ca3af" }}
-            interval="preserveStartEnd"
+            interval={0}
+            tickFormatter={(value) => value}
           />
           <Tooltip
             contentStyle={{ fontSize: "11px", padding: "4px 8px" }}

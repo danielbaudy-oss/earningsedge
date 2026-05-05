@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getPrediction, analyzeTicker } from "@/lib/api";
 import { formatPercent, getRecommendationColor } from "@/lib/utils";
+import { PriceChart } from "@/components/PriceChart";
 import { TrendingUp, TrendingDown, AlertTriangle, Info, Shield, Target, Zap } from "lucide-react";
 
 interface PredictionCardProps {
@@ -145,6 +146,9 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
           </p>
         </div>
       </div>
+
+      {/* Price Chart */}
+      <PriceChart ticker={ticker} />
 
       {/* Risk Bar */}
       {riskScore !== undefined && (

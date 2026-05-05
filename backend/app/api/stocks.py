@@ -72,3 +72,46 @@ async def get_stock(ticker: str):
         response.update(metrics_result.data[0])
 
     return response
+
+
+@router.get("/{ticker}/chart")
+async def get_stock_chart(ticker: str):
+    """Get 30-day price history for a stock chart."""
+    import httpx
+    from datetime import date, timedelta
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    today = date.today()
+    from_ts = int((today - timedelta(days=35)).strftime("%s"))
+    to_ts = int(today.strftime("%s"))
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            "https://finnhub.io/api/v1/stock/candle",
+            params={
+                "symbol": ticker.upper(),
+                "resolution": "D",
+                "from": from_ts,
+                "to": to_ts,
+                "token": settings.finnhub_api_key,
+            },
+        )
+
+    if resp.status_code != 200:
+        return {"prices": []}
+
+    data = resp.json()
+    if data.get("s") != "ok":
+        return {"prices": []}
+
+    # Return simplified price data
+    closes = data.get("c", [])
+    timestamps = data.get("t", [])
+
+    prices = [
+        {"date": ts, "price": round(price, 2)}
+        for ts, price in zip(timestamps, closes)
+    ]
+
+    return {"prices": prices, "ticker": ticker.upper()}

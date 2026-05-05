@@ -6,7 +6,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const { mode } = useMode();
 
   const bgClass = mode === "trader"
-    ? "bg-green-50"
+    ? "bg-gray-50"
     : "bg-blue-50";
 
   return (

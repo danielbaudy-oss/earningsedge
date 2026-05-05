@@ -28,7 +28,7 @@ build/
 Thumbs.db
 
 # ML Models (large files)
-backend/models/*.joblib
+# backend/models/*.joblib  -- committed for deployment
 
 # Logs
 *.log

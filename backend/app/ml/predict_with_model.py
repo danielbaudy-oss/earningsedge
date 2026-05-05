@@ -149,6 +149,15 @@ def build_explanation(features: dict, beat_prob: float, direction_prob: float,
     elif mode == "longterm" and beat_rate > 0.7 and rev_growth > 10:
         reasons.append("Consistent earner with growth — quality long-term hold")
 
+    # Momentum
+    momentum = features.get("momentum_30d", 0)
+    if momentum < -10:
+        reasons.append(f"Stock in strong downtrend ({momentum:.0f}% last 30 days) — headwind")
+    elif momentum < -5:
+        reasons.append(f"Stock trending down ({momentum:.0f}% last 30 days)")
+    elif momentum > 10:
+        reasons.append(f"Stock in uptrend (+{momentum:.0f}% last 30 days) — tailwind")
+
     # Build explanation text
     top_3 = reasons[:3]
     explanation = f"{ticker} earnings analysis:\n" + "\n".join(f"• {r}" for r in top_3)
@@ -199,6 +208,16 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     features["pe_ratio"] = metrics.get("peTTM", 0) or 0
     features["beta"] = metrics.get("beta", 1) or 1
 
+    # Price momentum from Finnhub metrics (already fetched above, no extra API call)
+    # Use 13-week return as primary momentum signal (most relevant for earnings)
+    momentum_30d = metrics.get("monthToDatePriceReturnDaily", 0) or 0
+    momentum_13w = metrics.get("13WeekPriceReturnDaily", 0) or 0
+    # Use the stronger signal: if 13-week trend is very negative, that dominates
+    momentum_signal = momentum_13w if abs(momentum_13w) > abs(momentum_30d) else momentum_30d
+
+    features["momentum_30d"] = momentum_signal
+    features["momentum_7d"] = metrics.get("5DayPriceReturnDaily", 0) or 0
+
     # Create DataFrame with correct feature order
     X = pd.DataFrame([features])
     for col in feature_names:
@@ -208,23 +227,37 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
 
     # ML predictions
     beat_prob = float(beat_model.predict_proba(X)[0][1])
-    direction_prob = float(direction_model.predict_proba(X)[0][1])
+    direction_prob_raw = float(direction_model.predict_proba(X)[0][1])
     raw_move = float(magnitude_model.predict(X)[0])
 
-    # Adjust expected move: use model direction + historical volatility for magnitude
-    # The raw model tends to predict near-zero (regression to mean)
-    # Scale it by the stock's typical earnings move
+    # --- MOMENTUM ADJUSTMENT ---
+    # Stock in downtrend? Discount "goes up" probability.
+    # Stock in uptrend? Slight boost.
+    momentum_adj = 0.0
+    if momentum_signal < -15:
+        momentum_adj = -0.20
+    elif momentum_signal < -8:
+        momentum_adj = -0.12
+    elif momentum_signal < -3:
+        momentum_adj = -0.06
+    elif momentum_signal > 15:
+        momentum_adj = 0.10
+    elif momentum_signal > 5:
+        momentum_adj = 0.05
+
+    direction_prob = max(0.05, min(0.95, direction_prob_raw + momentum_adj))
+
+    # Adjust expected move: direction + historical volatility + momentum
     prior_moves = [e.get("price_change_pct", 0) for e in earnings if e.get("price_change_pct") is not None]
     avg_abs_move = float(np.mean([abs(m) for m in prior_moves])) if prior_moves else 3.0
     volatility = float(np.std(prior_moves)) if len(prior_moves) > 1 else 3.0
 
-    # Expected move: direction from model * typical magnitude for this stock
     if direction_prob > 0.55:
-        expected_move = avg_abs_move * (direction_prob - 0.5) * 2  # Scale by confidence
+        expected_move = avg_abs_move * (direction_prob - 0.5) * 2
     elif direction_prob < 0.45:
         expected_move = -avg_abs_move * (0.5 - direction_prob) * 2
     else:
-        expected_move = raw_move  # Near 50/50, use raw model output
+        expected_move = raw_move + (momentum_30d * 0.03)
 
     # Risk score
     beta = features.get("beta", 1)
@@ -317,7 +350,7 @@ async def generate_all_ml_predictions(mode: str = "trader"):
         except Exception as e:
             print(f"  ❌ {ticker}: {e}")
 
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(1.5)  # Finnhub rate limit
 
     await client.aclose()
     print(f"\n✅ Generated {generated} ML predictions")

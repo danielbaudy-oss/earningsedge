@@ -91,9 +91,11 @@ async def get_upcoming_predictions(
     mode: Optional[str] = Query("trader", description="trader or longterm"),
     limit: int = Query(20, le=100),
 ):
-    """Get predictions for all upcoming earnings, sorted by confidence."""
+    """Get predictions for earnings in the next 7 days, sorted by confidence."""
     sb = get_supabase()
     today = date.today().isoformat()
+    from datetime import timedelta
+    next_week = (date.today() + timedelta(days=7)).isoformat()
 
     query = (
         sb.table("predictions")
@@ -112,8 +114,9 @@ async def get_upcoming_predictions(
     for pred in result.data:
         event = pred.get("earnings_events") or {}
         stock = pred.get("stocks") or {}
-        # Only include if earnings date is in the future
-        if event.get("report_date") and event["report_date"] >= today:
+        report_date = event.get("report_date", "")
+        # Only include if earnings date is within the next 7 days
+        if report_date and report_date >= today and report_date <= next_week:
             predictions.append(PredictionResponse(
                 id=pred["id"],
                 ticker=stock.get("ticker"),

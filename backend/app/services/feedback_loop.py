@@ -25,53 +25,53 @@ async def update_prediction_outcomes():
     """
     Check recent earnings and update predictions with actual outcomes.
     This is the core of the feedback loop.
+    
+    For each prediction where earnings have passed:
+    1. Check if actual EPS is now available
+    2. Check if price reaction data exists
+    3. Calculate prediction errors
+    4. Store outcome + errors for model improvement
     """
     print("🔄 Feedback Loop: Checking prediction outcomes...\n")
     sb = get_supabase()
 
-    # Get predictions that don't have outcomes yet
-    # where the earnings date has passed
+    # Get all predictions without outcomes where earnings date has passed
     today = date.today().isoformat()
 
-    headers = {
-        "apikey": settings.supabase_service_key,
-        "Authorization": f"Bearer {settings.supabase_service_key}",
-        "Content-Type": "application/json",
-        "Prefer": "return=representation",
-    }
-
-    # Find predictions needing outcome updates
+    # Get predictions that need outcome updates
     predictions = (
         sb.table("predictions")
-        .select("id, stock_id, earnings_event_id, recommendation, beat_probability, "
-                "price_up_probability, expected_move_pct, "
-                "earnings_events(report_date, eps_actual, eps_estimate, price_change_pct), "
-                "stocks(ticker)")
+        .select("id, stock_id, earnings_event_id, recommendation, "
+                "beat_probability, price_up_probability, expected_move_pct, "
+                "confidence_score")
         .execute()
     )
 
+    # Get earnings events with actuals
+    events_with_actuals = (
+        sb.table("earnings_events")
+        .select("id, eps_actual, eps_estimate, eps_surprise_pct, price_change_pct, report_date")
+        .lte("report_date", today)
+        .execute()
+    )
+
+    # Build lookup
+    event_map = {e["id"]: e for e in events_with_actuals.data}
+
     updated = 0
+    errors_log = []
+
     for pred in predictions.data:
-        # Skip if already has outcome
-        if pred.get("actual_outcome"):
+        # Skip if already has outcome (check via a simple heuristic)
+        event = event_map.get(pred.get("earnings_event_id"))
+        if not event:
+            continue
+        if event.get("eps_actual") is None:
             continue
 
-        event = pred.get("earnings_events") or {}
-        stock = pred.get("stocks") or {}
-        ticker = stock.get("ticker", "?")
-
-        # Skip if earnings haven't happened yet
-        report_date = event.get("report_date")
-        if not report_date or report_date >= today:
-            continue
-
-        # Skip if no actual data yet
-        eps_actual = event.get("eps_actual")
+        eps_actual = event["eps_actual"]
         eps_estimate = event.get("eps_estimate")
         price_change = event.get("price_change_pct")
-
-        if eps_actual is None:
-            continue
 
         # Determine outcome
         if eps_estimate and eps_estimate != 0:
@@ -83,20 +83,23 @@ async def update_prediction_outcomes():
         # Determine if prediction was correct
         rec = pred.get("recommendation")
         prediction_correct = None
-        if rec == "buy" and price_change is not None:
-            prediction_correct = price_change > 0
-        elif rec == "sell" and price_change is not None:
-            prediction_correct = price_change < 0
-        elif rec == "avoid" and price_change is not None:
-            prediction_correct = abs(price_change) > 5  # Volatile = correct to avoid
+        if price_change is not None:
+            if rec == "buy":
+                prediction_correct = price_change > 0
+            elif rec == "sell":
+                prediction_correct = price_change < 0
+            elif rec == "avoid":
+                prediction_correct = abs(price_change) > 5
 
-        # Calculate prediction errors
+        # Calculate specific errors
         beat_prob = pred.get("beat_probability", 0.5)
         beat_error = abs((1 if outcome == "beat" else 0) - beat_prob)
 
-        price_up_prob = pred.get("price_up_probability", 0.5)
-        actual_up = 1 if (price_change or 0) > 0 else 0
-        direction_error = abs(actual_up - price_up_prob)
+        direction_error = 0
+        if price_change is not None:
+            actual_up = 1 if price_change > 0 else 0
+            price_up_prob = pred.get("price_up_probability", 0.5)
+            direction_error = abs(actual_up - price_up_prob)
 
         move_error = abs((pred.get("expected_move_pct") or 0) - (price_change or 0))
 
@@ -107,6 +110,12 @@ async def update_prediction_outcomes():
             "prediction_correct": prediction_correct,
         }
 
+        headers = {
+            "apikey": settings.supabase_service_key,
+            "Authorization": f"Bearer {settings.supabase_service_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        }
         url = f"{settings.supabase_url}/rest/v1/predictions?id=eq.{pred['id']}"
         async with httpx.AsyncClient() as client:
             resp = await client.patch(url, json=update_data, headers=headers)
@@ -114,9 +123,28 @@ async def update_prediction_outcomes():
         if resp.status_code < 300:
             updated += 1
             correct_str = "✅" if prediction_correct else "❌"
-            print(f"  {correct_str} {ticker}: predicted {rec}, "
-                  f"actual {outcome} ({price_change:+.1f}% move), "
-                  f"beat_error={beat_error:.2f}, dir_error={direction_error:.2f}")
+            print(f"  {correct_str} Event {pred['earnings_event_id']}: "
+                  f"predicted {rec}, actual {outcome} ({price_change:+.1f}% move), "
+                  f"errors: beat={beat_error:.2f} dir={direction_error:.2f} move={move_error:.2f}%")
+
+            errors_log.append({
+                "beat_error": beat_error,
+                "direction_error": direction_error,
+                "move_error": move_error,
+                "correct": prediction_correct,
+            })
+
+    # Summary
+    if errors_log:
+        avg_beat_err = sum(e["beat_error"] for e in errors_log) / len(errors_log)
+        avg_dir_err = sum(e["direction_error"] for e in errors_log) / len(errors_log)
+        avg_move_err = sum(e["move_error"] for e in errors_log) / len(errors_log)
+        accuracy = sum(1 for e in errors_log if e["correct"]) / len(errors_log)
+        print(f"\n  📊 Summary: {len(errors_log)} outcomes evaluated")
+        print(f"     Accuracy: {accuracy:.1%}")
+        print(f"     Avg beat error: {avg_beat_err:.3f}")
+        print(f"     Avg direction error: {avg_dir_err:.3f}")
+        print(f"     Avg move error: {avg_move_err:.2f}%")
 
     print(f"\n📊 Updated {updated} prediction outcomes")
     return updated

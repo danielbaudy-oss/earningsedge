@@ -1,0 +1,59 @@
+/**
+ * API client for EarningsEdge backend.
+ */
+
+import axios from "axios";
+import type { Stock, StockDetail, EarningsEvent, Prediction } from "@/types";
+
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "/api",
+  timeout: 10000,
+});
+
+// Stocks
+export async function searchStocks(query: string): Promise<Stock[]> {
+  const { data } = await api.get("/stocks/search", { params: { q: query } });
+  return data;
+}
+
+export async function getStock(ticker: string): Promise<StockDetail> {
+  const { data } = await api.get(`/stocks/${ticker}`);
+  return data;
+}
+
+// Earnings
+export async function getEarningsCalendar(
+  startDate: string,
+  endDate: string
+): Promise<EarningsEvent[]> {
+  const { data } = await api.get("/earnings/calendar", {
+    params: { start_date: startDate, end_date: endDate },
+  });
+  return data;
+}
+
+export async function getUpcomingEarnings(): Promise<EarningsEvent[]> {
+  const { data } = await api.get("/earnings/upcoming");
+  return data;
+}
+
+export async function getEarningsHistory(
+  ticker: string
+): Promise<EarningsEvent[]> {
+  const { data } = await api.get(`/earnings/history/${ticker}`);
+  return data;
+}
+
+// Predictions
+export async function getPrediction(ticker: string): Promise<Prediction> {
+  const { data } = await api.get(`/predictions/${ticker}`);
+  return data;
+}
+
+export async function getUpcomingPredictions(params?: {
+  min_confidence?: number;
+  recommendation?: string;
+}): Promise<Prediction[]> {
+  const { data } = await api.get("/predictions/upcoming/all", { params });
+  return data;
+}

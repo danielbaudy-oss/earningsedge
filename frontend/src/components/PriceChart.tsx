@@ -22,7 +22,7 @@ export function PriceChart({ ticker }: PriceChartProps) {
   }
 
   const prices = data?.prices || [];
-  if (prices.length < 3) {
+  if (prices.length < 2) {
     return null;
   }
 

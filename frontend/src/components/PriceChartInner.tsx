@@ -30,7 +30,7 @@ export default function PriceChartInner({ prices }: PriceChartInnerProps) {
         </span>
       </div>
       <ResponsiveContainer width="100%" height={80}>
-        <AreaChart data={dataWithMonths} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+        <AreaChart data={dataWithMonths} margin={{ top: 2, right: 10, left: 10, bottom: 0 }}>
           <YAxis domain={["dataMin", "dataMax"]} hide />
           <XAxis
             dataKey="month"

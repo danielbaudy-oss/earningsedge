@@ -51,7 +51,7 @@ export async function getPrediction(ticker: string): Promise<Prediction> {
 }
 
 export async function analyzeTicker(ticker: string, mode: string = "trader"): Promise<Prediction> {
-  const { data } = await api.post(`/predictions/analyze/${ticker}?mode=${mode}`);
+  const { data } = await api.post(`/predictions/analyze/${ticker}?mode=${mode}`, null, { timeout: 60000 });
   return data;
 }
 

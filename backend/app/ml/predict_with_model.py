@@ -98,65 +98,68 @@ def generate_recommendation(score: int, mode: str, risk_score: int,
 def build_explanation(features: dict, beat_prob: float, direction_prob: float,
                       expected_move: float, risk_score: int, mode: str,
                       ticker: str, metrics: dict) -> tuple[str, list[str]]:
-    """Generate explanation text and top 3 reasons."""
+    """Generate useful company context and key differentiators as reasons."""
     reasons = []
 
-    # Beat probability reason
-    if beat_prob > 0.7:
-        reasons.append(f"High probability of beating estimates ({beat_prob:.0%})")
-    elif beat_prob < 0.4:
-        reasons.append(f"Elevated risk of missing estimates ({1-beat_prob:.0%} miss probability)")
-
-    # Direction reason
-    if direction_prob > 0.6:
-        reasons.append(f"Stock likely to rise post-earnings ({direction_prob:.0%} up probability)")
-    elif direction_prob < 0.4:
-        reasons.append(f"Stock likely to drop post-earnings ({1-direction_prob:.0%} down probability)")
-
-    # Historical pattern
-    beat_rate = features.get("beat_rate_prior", 0.5)
-    if beat_rate > 0.8:
-        reasons.append(f"Strong historical beat rate ({beat_rate:.0%} of recent quarters)")
-    elif beat_rate < 0.4:
-        reasons.append(f"Poor historical beat rate ({beat_rate:.0%}) — frequently misses")
-
-    # Growth
+    # Company fundamentals context (useful info, not repeating probabilities)
     rev_growth = metrics.get("revenueGrowthTTMYoy", 0) or 0
-    if rev_growth > 20:
-        reasons.append(f"Strong revenue growth ({rev_growth:.0f}% YoY)")
-    elif rev_growth < -5:
-        reasons.append(f"Revenue declining ({rev_growth:.0f}% YoY)")
+    op_margin = metrics.get("operatingMarginTTM", 0) or 0
+    pe = metrics.get("peTTM", 0) or 0
+    beta = features.get("beta", 1)
+    momentum_13w = features.get("momentum_13w", 0)
+
+    # Revenue story
+    if rev_growth > 25:
+        reasons.append(f"Revenue growing {rev_growth:.0f}% YoY — strong top-line momentum")
+    elif rev_growth > 10:
+        reasons.append(f"Solid revenue growth at {rev_growth:.0f}% YoY")
+    elif rev_growth > 0:
+        reasons.append(f"Modest revenue growth ({rev_growth:.0f}% YoY)")
+    elif rev_growth > -10:
+        reasons.append(f"Revenue declining {rev_growth:.0f}% YoY — watch for turnaround signals")
+    else:
+        reasons.append(f"Revenue in sharp decline ({rev_growth:.0f}% YoY) — significant headwind")
+
+    # Margin story
+    if op_margin > 25:
+        reasons.append(f"High-margin business ({op_margin:.0f}% operating margin)")
+    elif op_margin > 10:
+        reasons.append(f"Healthy margins ({op_margin:.0f}% operating margin)")
+    elif op_margin > 0:
+        reasons.append(f"Thin margins ({op_margin:.0f}%) — less room for error")
+    else:
+        reasons.append(f"Currently unprofitable ({op_margin:.0f}% operating margin)")
+
+    # Price trend context
+    if momentum_13w < -20:
+        reasons.append(f"Stock down {momentum_13w:.0f}% in 13 weeks — heavy selling pressure")
+    elif momentum_13w < -10:
+        reasons.append(f"Stock in downtrend ({momentum_13w:.0f}% over 13 weeks)")
+    elif momentum_13w > 20:
+        reasons.append(f"Strong uptrend (+{momentum_13w:.0f}% in 13 weeks) — momentum tailwind")
+    elif momentum_13w > 10:
+        reasons.append(f"Stock trending up (+{momentum_13w:.0f}% over 13 weeks)")
+
+    # Valuation context
+    if pe > 50:
+        reasons.append(f"Premium valuation (PE {pe:.0f}x) — market expects strong growth")
+    elif pe > 0 and pe < 12:
+        reasons.append(f"Value territory (PE {pe:.0f}x) — low expectations to beat")
+
+    # Earnings pattern
+    beat_rate = features.get("beat_rate_prior", 0)
+    beat_up_rate = features.get("beat_leads_to_up_rate", 0.5)
+    if beat_rate > 0.8 and beat_up_rate < 0.5:
+        reasons.append("Beats estimates often but stock doesn't always react positively")
+    elif beat_rate > 0.8 and beat_up_rate > 0.7:
+        reasons.append("Consistent beater AND stock typically rallies after earnings")
 
     # Estimate trend
     est_change = features.get("estimate_change_pct", 0)
-    if est_change < -10:
-        reasons.append("Analyst estimates have been cut significantly")
-    elif est_change > 10:
-        reasons.append("Analyst estimates revised upward")
-
-    # Risk
-    if risk_score > 70:
-        reasons.append(f"High risk score ({risk_score}/100) — elevated uncertainty")
-
-    # Volatility
-    move_std = features.get("move_std_prior", 0)
-    if move_std > 5:
-        reasons.append(f"Historically volatile around earnings (±{move_std:.1f}% typical)")
-
-    # Mode-specific
-    if mode == "trader" and abs(expected_move) > 3:
-        reasons.append(f"Expected {expected_move:+.1f}% move — potential swing trade")
-    elif mode == "longterm" and beat_rate > 0.7 and rev_growth > 10:
-        reasons.append("Consistent earner with growth — quality long-term hold")
-
-    # Momentum
-    momentum = features.get("momentum_30d", 0)
-    if momentum < -10:
-        reasons.append(f"Stock in strong downtrend ({momentum:.0f}% last 30 days) — headwind")
-    elif momentum < -5:
-        reasons.append(f"Stock trending down ({momentum:.0f}% last 30 days)")
-    elif momentum > 10:
-        reasons.append(f"Stock in uptrend (+{momentum:.0f}% last 30 days) — tailwind")
+    if est_change < -15:
+        reasons.append("Analyst estimates cut significantly — low bar to beat")
+    elif est_change > 15:
+        reasons.append("Estimates revised up — high expectations priced in")
 
     # Build explanation text
     top_3 = reasons[:3]

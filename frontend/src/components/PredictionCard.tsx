@@ -170,12 +170,12 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
         </div>
       )}
 
-      {/* Top 3 Reasons */}
+      {/* Company Context */}
       {topReasons && topReasons.length > 0 && (
         <div className="mt-5 rounded-lg border border-gray-100 bg-white p-4">
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Target className="h-4 w-4" />
-            Why this prediction
+            Key Context
           </div>
           <ul className="mt-2 space-y-1.5">
             {topReasons.map((reason, i) => (
@@ -195,7 +195,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
         <div className="mt-5 rounded-lg bg-gray-50 p-4">
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Info className="h-4 w-4" />
-            Why this prediction
+            Key Context
           </div>
           <p className="mt-2 whitespace-pre-line text-sm text-gray-600">
             {prediction.explanation_text}

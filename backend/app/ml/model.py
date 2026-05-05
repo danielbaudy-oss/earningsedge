@@ -3,7 +3,6 @@
 import xgboost as xgb
 import numpy as np
 import pandas as pd
-import shap
 import joblib
 from pathlib import Path
 from datetime import datetime
@@ -108,8 +107,8 @@ class EarningsPredictionModel:
             verbose=False,
         )
 
-        # Build SHAP explainer on beat model
-        self.explainer = shap.TreeExplainer(self.beat_model)
+        # Build explainer using XGBoost built-in feature importance
+        self.explainer = None  # Using built-in importance instead of SHAP
 
         return self._evaluate(X_val, y_beat_val, y_dir_val, y_mag_val)
 
@@ -119,9 +118,8 @@ class EarningsPredictionModel:
         direction_prob = self.direction_model.predict_proba(X)[0][1]
         expected_move = float(self.magnitude_model.predict(X)[0])
 
-        # Generate SHAP explanation
-        shap_values = self.explainer.shap_values(X)
-        feature_importance = self._get_top_features(X, shap_values)
+        # Generate explanation using XGBoost built-in feature importance
+        feature_importance = self._get_top_features(X)
         explanation = self._generate_explanation(feature_importance, beat_prob, direction_prob)
 
         # Determine recommendation
@@ -168,15 +166,12 @@ class EarningsPredictionModel:
         confidence = (beat_decisiveness * 0.4 + dir_decisiveness * 0.4 + move_magnitude * 0.2)
         return round(min(max(confidence, 0.0), 1.0), 3)
 
-    def _get_top_features(self, X: pd.DataFrame, shap_values: np.ndarray,
-                          top_n: int = 5) -> dict:
-        """Get top features driving the prediction."""
-        if isinstance(shap_values, list):
-            shap_values = shap_values[1]  # Use positive class
-
+    def _get_top_features(self, X: pd.DataFrame, top_n: int = 5) -> dict:
+        """Get top features using XGBoost built-in feature importance."""
+        importance = self.beat_model.feature_importances_
         feature_impacts = {}
         for i, col in enumerate(X.columns):
-            feature_impacts[col] = float(shap_values[0][i])
+            feature_impacts[col] = float(importance[i])
 
         sorted_features = sorted(
             feature_impacts.items(), key=lambda x: abs(x[1]), reverse=True
@@ -245,6 +240,6 @@ class EarningsPredictionModel:
         model.magnitude_model = joblib.load(model_dir / "magnitude_model.joblib")
         model.feature_names = joblib.load(model_dir / "feature_names.joblib")
         model.version = joblib.load(model_dir / "version.joblib")
-        model.explainer = shap.TreeExplainer(model.beat_model)
+        model.explainer = None
 
         return model

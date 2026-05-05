@@ -13,6 +13,7 @@ class PredictionResponse(BaseModel):
     id: int
     ticker: Optional[str] = None
     company_name: Optional[str] = None
+    description: Optional[str] = None
     earnings_date: Optional[str] = None
     recommendation: str
     confidence_score: float
@@ -38,7 +39,7 @@ async def get_prediction(ticker: str):
     sb = get_supabase()
 
     # Get stock
-    stock_result = sb.table("stocks").select("id,ticker,company_name").eq("ticker", ticker.upper()).execute()
+    stock_result = sb.table("stocks").select("id,ticker,company_name,description").eq("ticker", ticker.upper()).execute()
     if not stock_result.data:
         raise HTTPException(status_code=404, detail="Stock not found")
 
@@ -64,6 +65,7 @@ async def get_prediction(ticker: str):
         id=pred["id"],
         ticker=stock["ticker"],
         company_name=stock["company_name"],
+        description=stock.get("description"),
         earnings_date=event.get("report_date"),
         recommendation=pred["recommendation"],
         confidence_score=pred["confidence_score"],

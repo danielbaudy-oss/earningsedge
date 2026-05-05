@@ -43,6 +43,7 @@ export interface Prediction {
   id: number;
   ticker: string;
   company_name: string;
+  description?: string;
   earnings_date?: string;
   recommendation: Recommendation;
   confidence_score: number;

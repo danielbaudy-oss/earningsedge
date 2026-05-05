@@ -218,11 +218,23 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
                 "Content-Type": "application/json",
             }
             url = f"{settings.supabase_url}/rest/v1/stocks?id=eq.{stock_id}"
+            update_data = {
+                "company_name": company_name,
+                "sector": profile.get("finnhubIndustry", ""),
+            }
+
+            # Also try to get description from Polygon
+            poly_resp = await client.get(
+                f"{POLYGON_BASE}/v3/reference/tickers/{ticker}",
+                params={"apiKey": settings.polygon_api_key},
+            )
+            if poly_resp.status_code == 200:
+                poly_data = poly_resp.json().get("results", {})
+                if poly_data.get("description"):
+                    update_data["description"] = poly_data["description"][:500]
+
             async with hx.AsyncClient() as patch_client:
-                await patch_client.patch(url, json={
-                    "company_name": company_name,
-                    "sector": profile.get("finnhubIndustry", ""),
-                }, headers=headers)
+                await patch_client.patch(url, json=update_data, headers=headers)
         except Exception:
             pass
 

@@ -183,8 +183,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
           </div>
           <ul className="mt-2 space-y-1.5">
             {topReasons.map((reason, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-gray-400 flex-shrink-0" />
+              <li key={i} className="text-sm text-gray-600">
                 {reason}
               </li>
             ))}

@@ -78,13 +78,15 @@ async def get_stock(ticker: str):
 async def get_stock_chart(ticker: str):
     """Get 30-day price history for a stock chart."""
     import httpx
+    import time
     from datetime import date, timedelta
     from app.core.config import get_settings
     settings = get_settings()
 
     today = date.today()
-    from_ts = int((today - timedelta(days=35)).strftime("%s"))
-    to_ts = int(today.strftime("%s"))
+    from_date = today - timedelta(days=35)
+    from_ts = int(time.mktime(from_date.timetuple()))
+    to_ts = int(time.mktime(today.timetuple()))
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(

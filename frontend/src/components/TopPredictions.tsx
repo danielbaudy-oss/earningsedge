@@ -70,7 +70,12 @@ export function TopPredictions() {
                   <span className="ml-1 uppercase text-xs">{pred.recommendation}</span>
                 </span>
                 <div>
-                  <p className="font-medium text-gray-900">{pred.ticker}</p>
+                  <p className="font-medium text-gray-900">
+                    {pred.ticker}
+                    {pred.company_name && (
+                      <span className="ml-2 text-xs font-normal text-gray-500">{pred.company_name}</span>
+                    )}
+                  </p>
                   <p className="text-xs text-gray-500">Reports: {pred.earnings_date}</p>
                 </div>
               </div>

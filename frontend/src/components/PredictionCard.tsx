@@ -50,15 +50,14 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
         </button>
         {analyzeMutation.isError && (
           <p className="mt-2 text-xs text-gray-500">
-            {(analyzeMutation.error as any)?.response?.data?.message ||
-             "No upcoming earnings found or insufficient data."}
+            No upcoming earnings found or insufficient data.
           </p>
         )}
-        {analyzeMutation.data && !analyzeMutation.data.recommendation && (
+        {analyzeMutation.data && !(analyzeMutation.data as any).recommendation && (
           <div className="mt-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-700">
-            {analyzeMutation.data.message}
-            {analyzeMutation.data.earnings_date && (
-              <p className="mt-1 font-medium">📅 Next earnings: {analyzeMutation.data.earnings_date}</p>
+            {(analyzeMutation.data as any).message}
+            {(analyzeMutation.data as any).earnings_date && (
+              <p className="mt-1 font-medium">📅 Next earnings: {(analyzeMutation.data as any).earnings_date}</p>
             )}
           </div>
         )}

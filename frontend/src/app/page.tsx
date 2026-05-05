@@ -5,9 +5,11 @@ import { StockSearch } from "@/components/StockSearch";
 import { PredictionCard } from "@/components/PredictionCard";
 import { UpcomingEarnings } from "@/components/UpcomingEarnings";
 import { TopPredictions } from "@/components/TopPredictions";
+import { ModeToggle } from "@/components/ModeToggle";
 
 export default function Dashboard() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const [mode, setMode] = useState<"trader" | "longterm">("trader");
 
   return (
     <div className="space-y-8">
@@ -17,8 +19,13 @@ export default function Dashboard() {
           Should you hold through earnings?
         </h1>
         <p className="mt-2 text-gray-600">
-          AI-powered predictions: Buy, Sell, or Avoid before earnings
+          {mode === "trader"
+            ? "Short-term signals: buy before, sell after earnings"
+            : "Long-term view: is this a quality compounder to hold?"}
         </p>
+        <div className="mx-auto mt-4 flex items-center justify-center gap-4">
+          <ModeToggle mode={mode} onChange={setMode} />
+        </div>
         <div className="mx-auto mt-6 max-w-md">
           <StockSearch onSelect={setSelectedTicker} />
         </div>

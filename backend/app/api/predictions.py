@@ -88,6 +88,7 @@ async def get_prediction(ticker: str):
 async def get_upcoming_predictions(
     min_confidence: float = Query(0.0, ge=0, le=1),
     recommendation: Optional[str] = Query(None),
+    mode: Optional[str] = Query("trader", description="trader or longterm"),
     limit: int = Query(20, le=100),
 ):
     """Get predictions for all upcoming earnings, sorted by confidence."""

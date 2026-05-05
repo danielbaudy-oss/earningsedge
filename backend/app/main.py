@@ -38,3 +38,10 @@ app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "service": settings.app_name}
+
+
+@app.get("/api/model/accuracy")
+async def get_model_accuracy():
+    """Get current model accuracy metrics (feedback loop)."""
+    from app.services.feedback_loop import get_model_accuracy
+    return await get_model_accuracy()

@@ -14,12 +14,17 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
   const { data: prediction, isLoading, error } = useQuery({
     queryKey: ["prediction", ticker],
     queryFn: () => getPrediction(ticker),
+    retry: false,
+    staleTime: 60000,
   });
 
   const analyzeMutation = useMutation({
     mutationFn: () => analyzeTicker(ticker),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["prediction", ticker] });
+    onSuccess: (data) => {
+      // Only invalidate if we got a real prediction back
+      if (data.recommendation) {
+        queryClient.invalidateQueries({ queryKey: ["prediction", ticker] });
+      }
     },
   });
 
@@ -44,7 +49,18 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
           {analyzeMutation.isPending ? "Analyzing..." : "Analyze Now"}
         </button>
         {analyzeMutation.isError && (
-          <p className="mt-2 text-xs text-red-500">Could not analyze. May lack historical data.</p>
+          <p className="mt-2 text-xs text-gray-500">
+            {(analyzeMutation.error as any)?.response?.data?.message ||
+             "No upcoming earnings found or insufficient data."}
+          </p>
+        )}
+        {analyzeMutation.data && !analyzeMutation.data.recommendation && (
+          <div className="mt-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-700">
+            {analyzeMutation.data.message}
+            {analyzeMutation.data.earnings_date && (
+              <p className="mt-1 font-medium">📅 Next earnings: {analyzeMutation.data.earnings_date}</p>
+            )}
+          </div>
         )}
       </div>
     );

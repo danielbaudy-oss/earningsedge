@@ -7,7 +7,7 @@ import type { Stock, StockDetail, EarningsEvent, Prediction } from "@/types";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "/api",
-  timeout: 10000,
+  timeout: 15000,
 });
 
 // Stocks

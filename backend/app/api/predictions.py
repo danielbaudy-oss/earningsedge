@@ -175,6 +175,41 @@ async def analyze_stock(ticker: str, mode: Optional[str] = Query("trader")):
     )
 
     if not event_result.data:
+        # No upcoming earnings in DB — try fetching next earnings date from Finnhub
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            params = {"symbol": ticker.upper(), "token": settings_local.finnhub_api_key}
+            resp = await client.get("https://finnhub.io/api/v1/calendar/earnings", params={
+                **params,
+                "from": d.today().isoformat(),
+                "to": (d.today() + __import__('datetime').timedelta(days=90)).isoformat(),
+            })
+            if resp.status_code == 200:
+                cal = resp.json().get("earningsCalendar", [])
+                match = next((e for e in cal if e.get("symbol") == ticker.upper()), None)
+                if match:
+                    # Store it
+                    earnings_data = {
+                        "stock_id": stock["id"],
+                        "report_date": match.get("date"),
+                        "fiscal_quarter": f"Q{match.get('quarter', '?')} {match.get('year', '')}",
+                        "report_time": "before_market" if match.get("hour") == "bmo" else "after_market",
+                        "eps_estimate": match.get("epsEstimate"),
+                        "revenue_estimate": match.get("revenueEstimate"),
+                        "is_confirmed": True,
+                    }
+                    try:
+                        sb.table("earnings_events").upsert(earnings_data, on_conflict="stock_id,report_date")
+                    except Exception:
+                        pass
+
+                    return {
+                        "ticker": ticker.upper(),
+                        "company_name": stock.get("company_name", ticker),
+                        "has_upcoming_earnings": True,
+                        "earnings_date": match.get("date"),
+                        "message": f"Next earnings: {match.get('date')}. Not enough recent data to generate a full prediction yet — check back closer to the date.",
+                    }
+
         return {
             "ticker": ticker.upper(),
             "company_name": stock.get("company_name", ticker),

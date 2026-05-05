@@ -2,12 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { getPrediction } from "@/lib/api";
-import {
-  formatPercent,
-  getRecommendationColor,
-  getConfidenceColor,
-} from "@/lib/utils";
-import { TrendingUp, TrendingDown, AlertTriangle, Info } from "lucide-react";
+import { formatPercent, getRecommendationColor } from "@/lib/utils";
+import { TrendingUp, TrendingDown, AlertTriangle, Info, Shield, Target } from "lucide-react";
 
 interface PredictionCardProps {
   ticker: string;
@@ -41,6 +37,15 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
     avoid: <AlertTriangle className="h-6 w-6" />,
   };
 
+  const totalScore = prediction.feature_importance?.total_score;
+  const riskScore = prediction.feature_importance?.risk_score;
+  const topReasons = prediction.feature_importance?.top_reasons as string[] | undefined;
+
+  // Expected move color
+  const moveColor = (prediction.expected_move_pct ?? 0) >= 0
+    ? "text-green-700"
+    : "text-red-700";
+
   return (
     <div className="card">
       {/* Header */}
@@ -52,88 +57,129 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
           <p className="text-sm text-gray-500">{prediction.company_name}</p>
           {prediction.earnings_date && (
             <p className="mt-1 text-xs text-gray-400">
-              Earnings: {prediction.earnings_date}
+              📅 Reports: {prediction.earnings_date}
             </p>
           )}
         </div>
 
         {/* Recommendation Badge */}
-        <div
-          className={`badge text-lg font-bold uppercase ${getRecommendationColor(prediction.recommendation)}`}
-        >
-          {recIcon[prediction.recommendation]}
-          <span className="ml-2">{prediction.recommendation}</span>
+        <div className="text-right">
+          <div
+            className={`badge text-lg font-bold uppercase ${getRecommendationColor(prediction.recommendation)}`}
+          >
+            {recIcon[prediction.recommendation]}
+            <span className="ml-2">{prediction.recommendation}</span>
+          </div>
+          {totalScore !== undefined && (
+            <p className="mt-1 text-xs text-gray-500">
+              Score: <span className="font-bold text-gray-900">{totalScore}%</span>
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div>
-          <p className="text-xs text-gray-500">Beat Probability</p>
-          <p className="text-lg font-semibold">
+      {/* Main Metrics — Simple & Clear */}
+      <div className="mt-6 grid grid-cols-3 gap-4">
+        {/* Expected Move — THE key number */}
+        <div className="rounded-lg bg-gray-50 p-3 text-center">
+          <p className="text-xs text-gray-500">Expected Move</p>
+          <p className={`text-2xl font-bold ${moveColor}`}>
+            {prediction.expected_move_pct !== undefined
+              ? `${prediction.expected_move_pct >= 0 ? "+" : ""}${prediction.expected_move_pct.toFixed(1)}%`
+              : "—"}
+          </p>
+          <p className="text-xs text-gray-400">after earnings</p>
+        </div>
+
+        {/* Will they beat? */}
+        <div className="rounded-lg bg-gray-50 p-3 text-center">
+          <p className="text-xs text-gray-500">Beats Earnings?</p>
+          <p className="text-2xl font-bold text-gray-900">
             {prediction.beat_probability
               ? `${(prediction.beat_probability * 100).toFixed(0)}%`
               : "—"}
           </p>
+          <p className="text-xs text-gray-400">
+            {prediction.beat_probability && prediction.beat_probability > 0.65
+              ? "likely yes"
+              : prediction.beat_probability && prediction.beat_probability < 0.4
+              ? "likely no"
+              : "uncertain"}
+          </p>
         </div>
-        <div>
-          <p className="text-xs text-gray-500">Price Up Probability</p>
-          <p className="text-lg font-semibold">
+
+        {/* Stock goes up? */}
+        <div className="rounded-lg bg-gray-50 p-3 text-center">
+          <p className="text-xs text-gray-500">Stock Goes Up?</p>
+          <p className="text-2xl font-bold text-gray-900">
             {prediction.price_up_probability
               ? `${(prediction.price_up_probability * 100).toFixed(0)}%`
               : "—"}
           </p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-500">Expected Move</p>
-          <p className="text-lg font-semibold">
-            {formatPercent(prediction.expected_move_pct)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-500">Confidence</p>
-          <p
-            className={`text-lg font-semibold ${getConfidenceColor(prediction.confidence_score)}`}
-          >
-            {(prediction.confidence_score * 100).toFixed(0)}%
+          <p className="text-xs text-gray-400">
+            {prediction.price_up_probability && prediction.price_up_probability > 0.6
+              ? "likely yes"
+              : prediction.price_up_probability && prediction.price_up_probability < 0.4
+              ? "likely no"
+              : "coin flip"}
           </p>
         </div>
       </div>
 
-      {/* Explanation */}
-      {prediction.explanation_text && (
-        <div className="mt-6 rounded-lg bg-gray-50 p-4">
+      {/* Risk Bar */}
+      {riskScore !== undefined && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1 text-gray-500">
+              <Shield className="h-3 w-3" /> Risk Level
+            </span>
+            <span className={`font-medium ${
+              riskScore > 60 ? "text-red-600" : riskScore > 35 ? "text-amber-600" : "text-green-600"
+            }`}>
+              {riskScore > 60 ? "High" : riskScore > 35 ? "Medium" : "Low"} ({riskScore}%)
+            </span>
+          </div>
+          <div className="mt-1 h-2 w-full rounded-full bg-gray-100">
+            <div
+              className={`h-2 rounded-full ${
+                riskScore > 60 ? "bg-red-500" : riskScore > 35 ? "bg-amber-500" : "bg-green-500"
+              }`}
+              style={{ width: `${riskScore}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Top 3 Reasons — Clear bullets */}
+      {topReasons && topReasons.length > 0 && (
+        <div className="mt-5 rounded-lg border border-gray-100 bg-white p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Target className="h-4 w-4" />
+            Why this prediction
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {topReasons.map((reason, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                <span className="mt-0.5 text-xs">
+                  {i === 0 ? "🔑" : i === 1 ? "📊" : "💡"}
+                </span>
+                {reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Fallback explanation if no top_reasons */}
+      {!topReasons && prediction.explanation_text && (
+        <div className="mt-5 rounded-lg bg-gray-50 p-4">
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Info className="h-4 w-4" />
-            Why this prediction?
+            Why this prediction
           </div>
           <p className="mt-2 whitespace-pre-line text-sm text-gray-600">
             {prediction.explanation_text}
           </p>
-        </div>
-      )}
-
-      {/* Feature Importance */}
-      {prediction.feature_importance && (
-        <div className="mt-4">
-          <p className="text-xs font-medium text-gray-500">Key Factors</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {Object.entries(prediction.feature_importance).map(
-              ([feature, impact]) => (
-                <span
-                  key={feature}
-                  className={`rounded-full px-2 py-1 text-xs ${
-                    impact > 0
-                      ? "bg-green-50 text-green-700"
-                      : "bg-red-50 text-red-700"
-                  }`}
-                >
-                  {feature.replace(/_/g, " ")} ({impact > 0 ? "+" : ""}
-                  {impact.toFixed(3)})
-                </span>
-              )
-            )}
-          </div>
         </div>
       )}
     </div>

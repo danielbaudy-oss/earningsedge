@@ -6,6 +6,7 @@ import { PredictionCard } from "@/components/PredictionCard";
 import { UpcomingEarnings } from "@/components/UpcomingEarnings";
 import { TopPredictions } from "@/components/TopPredictions";
 import { ModeToggle } from "@/components/ModeToggle";
+import { MetricsLegend } from "@/components/MetricsLegend";
 
 export default function Dashboard() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export default function Dashboard() {
         </p>
         <div className="mx-auto mt-4 flex items-center justify-center gap-4">
           <ModeToggle mode={mode} onChange={setMode} />
+          <MetricsLegend />
         </div>
         <div className="mx-auto mt-6 max-w-md">
           <StockSearch onSelect={setSelectedTicker} />

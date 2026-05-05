@@ -1,0 +1,329 @@
+"""
+Generate predictions using the trained XGBoost model.
+Combines ML predictions with the multi-factor scoring for the final output.
+
+Output format per spec:
+- Score (0-100)
+- Buy / Hold / Avoid
+- Earnings beat probability
+- Post-earnings move probability
+- Expected move %
+- Risk score
+- Top 3 key reasons
+- Mode: trader vs longterm
+"""
+
+import asyncio
+import httpx
+import numpy as np
+import pandas as pd
+import joblib
+from pathlib import Path
+from datetime import date, timedelta
+from app.core.config import get_settings
+from app.db.supabase_client import get_supabase
+from app.ml.train_xgboost import build_features_from_history, fetch_finnhub
+
+settings = get_settings()
+FINNHUB_BASE = "https://finnhub.io/api/v1"
+
+
+def load_models():
+    """Load trained XGBoost models."""
+    model_dir = Path(settings.model_path)
+    if not (model_dir / "beat_model.joblib").exists():
+        return None, None, None, None
+
+    beat_model = joblib.load(model_dir / "beat_model.joblib")
+    direction_model = joblib.load(model_dir / "direction_model.joblib")
+    magnitude_model = joblib.load(model_dir / "magnitude_model.joblib")
+    feature_names = joblib.load(model_dir / "feature_names.joblib")
+    return beat_model, direction_model, magnitude_model, feature_names
+
+
+def calculate_risk_score(beat_prob: float, direction_prob: float,
+                         expected_move: float, volatility: float, beta: float) -> int:
+    """
+    Risk score 0-100 (higher = riskier).
+    Considers uncertainty, volatility, and downside potential.
+    """
+    # Uncertainty: how close to 50/50 are the predictions?
+    beat_uncertainty = 1 - abs(beat_prob - 0.5) * 2  # 0 at extremes, 1 at 50%
+    dir_uncertainty = 1 - abs(direction_prob - 0.5) * 2
+
+    # Volatility component
+    vol_risk = min(volatility / 10, 1.0)  # Normalize to 0-1
+
+    # Beta component
+    beta_risk = min(max((beta - 0.5) / 2, 0), 1.0)
+
+    # Downside potential
+    downside = max(-expected_move / 10, 0)  # Negative expected move = risk
+
+    risk = (
+        beat_uncertainty * 25 +
+        dir_uncertainty * 25 +
+        vol_risk * 20 +
+        beta_risk * 15 +
+        downside * 15
+    )
+
+    return int(max(5, min(95, risk)))
+
+
+def generate_recommendation(score: int, mode: str, risk_score: int,
+                            beat_prob: float, direction_prob: float) -> str:
+    """
+    Generate Buy/Hold/Avoid based on score and mode.
+
+    Trader mode: more aggressive, lower threshold for buy
+    Long-term mode: more conservative, needs stronger fundamentals
+    """
+    if mode == "trader":
+        if score >= 60 and direction_prob > 0.55 and risk_score < 70:
+            return "buy"
+        elif score < 35 or (direction_prob < 0.4 and risk_score > 60):
+            return "sell"
+        else:
+            return "avoid"
+    else:  # longterm
+        if score >= 70 and beat_prob > 0.6 and risk_score < 55:
+            return "buy"
+        elif score < 30 or beat_prob < 0.35:
+            return "sell"
+        else:
+            return "avoid"
+
+
+def build_explanation(features: dict, beat_prob: float, direction_prob: float,
+                      expected_move: float, risk_score: int, mode: str,
+                      ticker: str, metrics: dict) -> tuple[str, list[str]]:
+    """Generate explanation text and top 3 reasons."""
+    reasons = []
+
+    # Beat probability reason
+    if beat_prob > 0.7:
+        reasons.append(f"High probability of beating estimates ({beat_prob:.0%})")
+    elif beat_prob < 0.4:
+        reasons.append(f"Elevated risk of missing estimates ({1-beat_prob:.0%} miss probability)")
+
+    # Direction reason
+    if direction_prob > 0.6:
+        reasons.append(f"Stock likely to rise post-earnings ({direction_prob:.0%} up probability)")
+    elif direction_prob < 0.4:
+        reasons.append(f"Stock likely to drop post-earnings ({1-direction_prob:.0%} down probability)")
+
+    # Historical pattern
+    beat_rate = features.get("beat_rate_prior", 0.5)
+    if beat_rate > 0.8:
+        reasons.append(f"Strong historical beat rate ({beat_rate:.0%} of recent quarters)")
+    elif beat_rate < 0.4:
+        reasons.append(f"Poor historical beat rate ({beat_rate:.0%}) — frequently misses")
+
+    # Growth
+    rev_growth = metrics.get("revenueGrowthTTMYoy", 0) or 0
+    if rev_growth > 20:
+        reasons.append(f"Strong revenue growth ({rev_growth:.0f}% YoY)")
+    elif rev_growth < -5:
+        reasons.append(f"Revenue declining ({rev_growth:.0f}% YoY)")
+
+    # Estimate trend
+    est_change = features.get("estimate_change_pct", 0)
+    if est_change < -10:
+        reasons.append("Analyst estimates have been cut significantly")
+    elif est_change > 10:
+        reasons.append("Analyst estimates revised upward")
+
+    # Risk
+    if risk_score > 70:
+        reasons.append(f"High risk score ({risk_score}/100) — elevated uncertainty")
+
+    # Volatility
+    move_std = features.get("move_std_prior", 0)
+    if move_std > 5:
+        reasons.append(f"Historically volatile around earnings (±{move_std:.1f}% typical)")
+
+    # Mode-specific
+    if mode == "trader" and abs(expected_move) > 3:
+        reasons.append(f"Expected {expected_move:+.1f}% move — potential swing trade")
+    elif mode == "longterm" and beat_rate > 0.7 and rev_growth > 10:
+        reasons.append("Consistent earner with growth — quality long-term hold")
+
+    # Build explanation text
+    top_3 = reasons[:3]
+    explanation = f"{ticker} earnings analysis:\n" + "\n".join(f"• {r}" for r in top_3)
+
+    return explanation, top_3
+
+
+async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
+                        event_id: int, mode: str = "trader") -> dict | None:
+    """Generate full prediction for a single stock."""
+    sb = get_supabase()
+
+    # Load models
+    beat_model, direction_model, magnitude_model, feature_names = load_models()
+    if beat_model is None:
+        return None
+
+    # Get earnings history
+    events = (
+        sb.table("earnings_events")
+        .select("report_date, eps_actual, eps_estimate, eps_surprise_pct, price_change_pct")
+        .eq("stock_id", stock_id)
+        .lte("report_date", date.today().isoformat())
+        .order("report_date", desc=True)
+        .limit(12)
+        .execute()
+    )
+
+    earnings = events.data
+    if len(earnings) < 2:
+        return None
+
+    # Build features (predicting next event, so use index -1 trick)
+    # Insert a dummy "current" event at position 0
+    dummy_current = {"eps_estimate": earnings[0].get("eps_estimate"), "report_date": date.today().isoformat()}
+    full_list = [dummy_current] + earnings
+    features = build_features_from_history(full_list, 0)
+    if features is None:
+        return None
+
+    # Fetch Finnhub metrics for enrichment
+    metrics_data = await fetch_finnhub(client, "stock/metric", {"symbol": ticker, "metric": "all"})
+    metrics = (metrics_data or {}).get("metric", {}) if isinstance(metrics_data, dict) else {}
+
+    features["revenue_growth"] = metrics.get("revenueGrowthTTMYoy", 0) or 0
+    features["eps_growth"] = metrics.get("epsGrowthTTMYoy", 0) or 0
+    features["operating_margin"] = metrics.get("operatingMarginTTM", 0) or 0
+    features["pe_ratio"] = metrics.get("peTTM", 0) or 0
+    features["beta"] = metrics.get("beta", 1) or 1
+
+    # Create DataFrame with correct feature order
+    X = pd.DataFrame([features])
+    for col in feature_names:
+        if col not in X.columns:
+            X[col] = 0
+    X = X[feature_names].fillna(0).replace([np.inf, -np.inf], 0)
+
+    # ML predictions
+    beat_prob = float(beat_model.predict_proba(X)[0][1])
+    direction_prob = float(direction_model.predict_proba(X)[0][1])
+    raw_move = float(magnitude_model.predict(X)[0])
+
+    # Adjust expected move: use model direction + historical volatility for magnitude
+    # The raw model tends to predict near-zero (regression to mean)
+    # Scale it by the stock's typical earnings move
+    prior_moves = [e.get("price_change_pct", 0) for e in earnings if e.get("price_change_pct") is not None]
+    avg_abs_move = float(np.mean([abs(m) for m in prior_moves])) if prior_moves else 3.0
+    volatility = float(np.std(prior_moves)) if len(prior_moves) > 1 else 3.0
+
+    # Expected move: direction from model * typical magnitude for this stock
+    if direction_prob > 0.55:
+        expected_move = avg_abs_move * (direction_prob - 0.5) * 2  # Scale by confidence
+    elif direction_prob < 0.45:
+        expected_move = -avg_abs_move * (0.5 - direction_prob) * 2
+    else:
+        expected_move = raw_move  # Near 50/50, use raw model output
+
+    # Risk score
+    beta = features.get("beta", 1)
+    risk_score = calculate_risk_score(beat_prob, direction_prob, expected_move, volatility, beta)
+
+    # Total score (0-100)
+    # Weighted: beat_prob (30%) + direction_prob (30%) + fundamentals (20%) + low_risk (20%)
+    fundamentals_signal = min(max((features.get("revenue_growth", 0) + 10) / 40, 0), 1)
+    risk_bonus = (100 - risk_score) / 100
+
+    total_score = int(
+        beat_prob * 30 +
+        direction_prob * 30 +
+        fundamentals_signal * 20 +
+        risk_bonus * 20
+    )
+    total_score = max(5, min(95, total_score))
+
+    # Recommendation
+    recommendation = generate_recommendation(total_score, mode, risk_score, beat_prob, direction_prob)
+
+    # Explanation
+    explanation, top_3_reasons = build_explanation(
+        features, beat_prob, direction_prob, expected_move, risk_score, mode, ticker, metrics
+    )
+
+    return {
+        "stock_id": stock_id,
+        "earnings_event_id": event_id,
+        "model_version": "xgboost_v1",
+        "recommendation": recommendation,
+        "confidence_score": total_score / 100,  # Normalize to 0-1 for DB
+        "beat_probability": round(beat_prob, 3),
+        "miss_probability": round(1 - beat_prob, 3),
+        "price_up_probability": round(direction_prob, 3),
+        "price_down_probability": round(1 - direction_prob, 3),
+        "expected_move_pct": round(expected_move, 2),
+        "expected_volatility": round(volatility, 2),
+        "predicted_direction": "up" if direction_prob > 0.5 else "down",
+        "feature_importance": {
+            "total_score": total_score,
+            "risk_score": risk_score,
+            "top_reasons": top_3_reasons,
+            "mode": mode,
+        },
+        "explanation_text": explanation,
+    }
+
+
+async def generate_all_ml_predictions(mode: str = "trader"):
+    """Generate ML predictions for all upcoming earnings."""
+    print(f"🤖 Generating XGBoost predictions (mode: {mode})...\n")
+    sb = get_supabase()
+    client = httpx.AsyncClient(timeout=30.0)
+
+    # Get upcoming earnings
+    today = date.today().isoformat()
+    upcoming = (
+        sb.table("earnings_events")
+        .select("id, stock_id, report_date, stocks(ticker, company_name)")
+        .gte("report_date", today)
+        .order("report_date")
+        .execute()
+    )
+
+    if not upcoming.data:
+        print("No upcoming earnings found.")
+        return
+
+    generated = 0
+    for event in upcoming.data:
+        stock = event.get("stocks") or {}
+        ticker = stock.get("ticker", "???")
+
+        pred = await predict_stock(client, ticker, event["stock_id"], event["id"], mode)
+        if pred is None:
+            print(f"  ⚠️  {ticker}: insufficient data for ML prediction")
+            continue
+
+        # Upsert prediction
+        try:
+            sb.table("predictions").upsert(pred, on_conflict="stock_id,earnings_event_id")
+            generated += 1
+            score = pred["feature_importance"]["total_score"]
+            risk = pred["feature_importance"]["risk_score"]
+            emoji = {"buy": "🟢", "sell": "🔴", "avoid": "🟡"}[pred["recommendation"]]
+            print(f"  {emoji} {ticker}: {pred['recommendation'].upper()} "
+                  f"Score:{score}/100 Risk:{risk}/100 "
+                  f"Beat:{pred['beat_probability']:.0%} Up:{pred['price_up_probability']:.0%}")
+        except Exception as e:
+            print(f"  ❌ {ticker}: {e}")
+
+        await asyncio.sleep(1.2)
+
+    await client.aclose()
+    print(f"\n✅ Generated {generated} ML predictions")
+
+
+if __name__ == "__main__":
+    import sys
+    mode = sys.argv[1] if len(sys.argv) > 1 else "trader"
+    asyncio.run(generate_all_ml_predictions(mode))

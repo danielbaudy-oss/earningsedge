@@ -141,19 +141,20 @@ async def get_upcoming_predictions(
 async def analyze_stock(ticker: str, mode: Optional[str] = Query("trader")):
     """
     On-demand analysis: generate a fresh prediction for any ticker.
-    Fetches live data from Finnhub and runs the ML model.
-    Returns the prediction without storing it (or stores if earnings are upcoming).
+    Fetches live data from Finnhub (including historical earnings if missing)
+    and runs the ML model. ~2-3 seconds per stock.
     """
     import httpx
     from app.ml.predict_with_model import predict_stock, load_models
     from app.db.supabase_client import get_supabase
+    from app.core.config import get_settings
 
+    settings_local = get_settings()
     sb = get_supabase()
 
     # Find or create the stock
     stock_result = sb.table("stocks").select("id, ticker, company_name").eq("ticker", ticker.upper()).execute()
     if not stock_result.data:
-        # Auto-create
         new_stock = sb.table("stocks").insert({"ticker": ticker.upper(), "company_name": ticker.upper(), "is_active": True})
         if not new_stock.data:
             raise HTTPException(status_code=404, detail="Could not find or create stock")
@@ -174,15 +175,53 @@ async def analyze_stock(ticker: str, mode: Optional[str] = Query("trader")):
     )
 
     if not event_result.data:
-        # No upcoming earnings — return basic info
         return {
             "ticker": ticker.upper(),
             "company_name": stock.get("company_name", ticker),
             "has_upcoming_earnings": False,
-            "message": "No upcoming earnings event found for this stock. Check back closer to their reporting date.",
+            "message": "No upcoming earnings event found. Check back closer to their reporting date.",
         }
 
     event = event_result.data[0]
+
+    # Check if we have historical earnings — if not, fetch them from Finnhub
+    history_result = (
+        sb.table("earnings_events")
+        .select("id")
+        .eq("stock_id", stock["id"])
+        .lte("report_date", d.today().isoformat())
+        .limit(1)
+        .execute()
+    )
+
+    if not history_result.data:
+        # Fetch historical earnings from Finnhub on-demand
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            params = {"symbol": ticker.upper(), "limit": 8, "token": settings_local.finnhub_api_key}
+            resp = await client.get("https://finnhub.io/api/v1/stock/earnings", params=params)
+            if resp.status_code == 200:
+                earnings = resp.json()
+                if isinstance(earnings, list):
+                    for e in earnings:
+                        if not e.get("period"):
+                            continue
+                        earnings_data = {
+                            "stock_id": stock["id"],
+                            "report_date": e.get("period"),
+                            "fiscal_quarter": f"Q{e.get('quarter', '?')} {e.get('year', '')}",
+                            "fiscal_year": e.get("year"),
+                            "eps_estimate": e.get("estimate"),
+                            "eps_actual": e.get("actual"),
+                            "is_confirmed": True,
+                        }
+                        if e.get("actual") is not None and e.get("estimate") and e["estimate"] != 0:
+                            surprise = e["actual"] - e["estimate"]
+                            earnings_data["eps_surprise"] = surprise
+                            earnings_data["eps_surprise_pct"] = (surprise / abs(e["estimate"])) * 100
+                        try:
+                            sb.table("earnings_events").upsert(earnings_data, on_conflict="stock_id,report_date")
+                        except Exception:
+                            pass
 
     # Check if models are loaded
     beat_model, _, _, _ = load_models()

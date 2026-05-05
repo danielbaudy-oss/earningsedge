@@ -14,7 +14,7 @@ settings = get_settings()
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 
-async def sync_earnings_calendar(days_ahead: int = 14):
+async def sync_earnings_calendar(days_ahead: int = 7):
     """Fetch all earnings for the next N days and sync to database."""
     print(f"📅 Syncing earnings calendar (next {days_ahead} days)...\n")
     sb = get_supabase()
@@ -93,4 +93,4 @@ async def sync_earnings_calendar(days_ahead: int = 14):
 
 
 if __name__ == "__main__":
-    asyncio.run(sync_earnings_calendar(14))
+    asyncio.run(sync_earnings_calendar(7))

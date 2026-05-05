@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getWatchlist } from "@/lib/api";
-import { formatPercent } from "@/lib/utils";
+import { formatPercent, getRecommendationColor } from "@/lib/utils";
 import { PredictionCard } from "@/components/PredictionCard";
-import { Rocket, Calendar, X } from "lucide-react";
+import { TrendingUp, X } from "lucide-react";
 
 export function Watchlist() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
@@ -18,9 +18,9 @@ export function Watchlist() {
   if (isLoading) {
     return (
       <div className="card animate-pulse">
-        <div className="space-y-4">
+        <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-20 rounded-lg bg-gray-100" />
+            <div key={i} className="h-14 rounded bg-gray-100" />
           ))}
         </div>
       </div>
@@ -38,34 +38,35 @@ export function Watchlist() {
   return (
     <>
       <div className="card">
-        <div className="space-y-3">
-          {picks.map((pred, i) => (
+        <div className="divide-y divide-gray-100">
+          {picks.map((pred) => (
             <button
               key={pred.id}
               onClick={() => setSelectedTicker(pred.ticker ?? null)}
-              className="flex w-full items-center gap-4 rounded-lg border border-gray-100 p-4 text-left hover:border-green-200 hover:bg-green-50/50 transition"
+              className="flex w-full items-center justify-between py-3 text-left hover:bg-gray-50 -mx-2 px-2 rounded-lg transition"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-700 text-sm font-bold">
-                {i + 1}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-gray-900">{pred.ticker}</span>
-                  <span className="text-xs text-gray-500">{pred.company_name}</span>
-                </div>
-                <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    Reports: {pred.earnings_date}
-                  </span>
-                  <span>Score: {(pred.confidence_score * 100).toFixed(0)}%</span>
+              <div className="flex items-center gap-3">
+                <span className={`badge ${getRecommendationColor(pred.recommendation)}`}>
+                  <TrendingUp className="h-3.5 w-3.5" />
+                  <span className="ml-1 uppercase text-xs">{pred.recommendation}</span>
+                </span>
+                <div>
+                  <p className="font-medium text-gray-900">
+                    {pred.ticker}
+                    {pred.company_name && (
+                      <span className="ml-2 text-xs font-normal text-gray-500">{pred.company_name}</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500">Reports: {pred.earnings_date}</p>
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-lg font-bold text-green-700">
+                <p className={`text-sm font-bold ${(pred.expected_move_pct ?? 0) >= 0 ? "text-green-700" : "text-red-700"}`}>
                   {formatPercent(pred.expected_move_pct)}
                 </p>
-                <p className="text-xs text-gray-400">expected</p>
+                <p className="text-xs text-gray-400">
+                  {(pred.confidence_score * 100).toFixed(0)}% score
+                </p>
               </div>
             </button>
           ))}

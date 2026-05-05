@@ -2,7 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { getStockChart } from "@/lib/api";
-import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from "recharts";
+import dynamic from "next/dynamic";
+
+const AreaChart = dynamic(() => import("recharts").then((m) => m.AreaChart), { ssr: false });
+const Area = dynamic(() => import("recharts").then((m) => m.Area), { ssr: false });
+const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), { ssr: false });
+const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
+const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
 
 interface PriceChartProps {
   ticker: string;
@@ -12,11 +18,11 @@ export function PriceChart({ ticker }: PriceChartProps) {
   const { data, isLoading } = useQuery({
     queryKey: ["chart", ticker],
     queryFn: () => getStockChart(ticker),
-    staleTime: 300000, // 5 min cache
+    staleTime: 300000,
   });
 
   if (isLoading) {
-    return <div className="h-16 animate-pulse rounded bg-gray-100" />;
+    return <div className="h-16 mt-4 animate-pulse rounded bg-gray-100" />;
   }
 
   const prices = data?.prices || [];
@@ -24,12 +30,10 @@ export function PriceChart({ ticker }: PriceChartProps) {
     return null;
   }
 
-  // Determine if trending up or down
   const firstPrice = prices[0].price;
   const lastPrice = prices[prices.length - 1].price;
   const isUp = lastPrice >= firstPrice;
   const color = isUp ? "#16a34a" : "#dc2626";
-  const gradientId = `gradient-${ticker}`;
 
   return (
     <div className="mt-4">
@@ -41,12 +45,6 @@ export function PriceChart({ ticker }: PriceChartProps) {
       </div>
       <ResponsiveContainer width="100%" height={60}>
         <AreaChart data={prices} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={color} stopOpacity={0.2} />
-              <stop offset="95%" stopColor={color} stopOpacity={0} />
-            </linearGradient>
-          </defs>
           <YAxis domain={["dataMin", "dataMax"]} hide />
           <Tooltip
             contentStyle={{ fontSize: "11px", padding: "4px 8px" }}
@@ -58,7 +56,8 @@ export function PriceChart({ ticker }: PriceChartProps) {
             dataKey="price"
             stroke={color}
             strokeWidth={1.5}
-            fill={`url(#${gradientId})`}
+            fill={color}
+            fillOpacity={0.1}
           />
         </AreaChart>
       </ResponsiveContainer>

@@ -1,4 +1,4 @@
-"""
+`"""
 Generate predictions using the trained XGBoost model.
 Combines ML predictions with the multi-factor scoring for the final output.
 
@@ -163,7 +163,7 @@ def build_explanation(features: dict, beat_prob: float, direction_prob: float,
 
     # Build explanation text
     top_3 = reasons[:3]
-    explanation = f"{ticker} earnings analysis:\n" + "\n".join(f"• {r}" for r in top_3)
+    explanation = f"{ticker} earnings analysis:\n" + "\n".join(f"- {r}" for r in top_3)
 
     return explanation, top_3
 

@@ -58,7 +58,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
           <div className="mt-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-700">
             {(analyzeMutation.data as any).message}
             {(analyzeMutation.data as any).earnings_date && (
-              <p className="mt-1 font-medium">📅 Next earnings: {(analyzeMutation.data as any).earnings_date}</p>
+              <p className="mt-1 font-medium">Next earnings: {(analyzeMutation.data as any).earnings_date}</p>
             )}
           </div>
         )}
@@ -88,7 +88,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
           <h3 className="text-lg font-bold text-gray-900">{prediction.ticker}</h3>
           <p className="text-sm text-gray-500">{prediction.company_name}</p>
           {prediction.earnings_date && (
-            <p className="mt-1 text-xs text-gray-400">📅 Reports: {prediction.earnings_date}</p>
+            <p className="mt-1 text-xs text-gray-400">Reports: {prediction.earnings_date}</p>
           )}
         </div>
         <div className="text-right">
@@ -184,9 +184,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
           <ul className="mt-2 space-y-1.5">
             {topReasons.map((reason, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                <span className="mt-0.5 text-xs">
-                  {i === 0 ? "🔑" : i === 1 ? "📊" : "💡"}
-                </span>
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-gray-400 flex-shrink-0" />
                 {reason}
               </li>
             ))}

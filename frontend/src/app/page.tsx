@@ -7,6 +7,7 @@ import { TopPredictions } from "@/components/TopPredictions";
 import { Watchlist } from "@/components/Watchlist";
 import { ModeToggle } from "@/components/ModeToggle";
 import { useMode } from "@/lib/mode-context";
+import { X } from "lucide-react";
 
 export default function Dashboard() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
@@ -36,7 +37,14 @@ export default function Dashboard() {
 
       {/* Selected Stock Prediction */}
       {selectedTicker && (
-        <section>
+        <section className="relative">
+          <button
+            onClick={() => setSelectedTicker(null)}
+            className="absolute -top-2 right-0 z-10 rounded-full bg-white border border-gray-200 p-1.5 shadow-sm hover:bg-gray-100"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4 text-gray-500" />
+          </button>
           <PredictionCard ticker={selectedTicker} />
         </section>
       )}

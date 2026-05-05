@@ -19,6 +19,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://earningsedge.vercel.app",
+        "https://earningsedge-pnc9.onrender.com",
         "https://*.vercel.app",
     ],
     allow_credentials=True,

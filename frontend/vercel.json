@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://earningsedge-api.onrender.com/api/:path*"
+      "destination": "https://earningsedge-pnc9.onrender.com/api/:path*"
     }
   ]
 }

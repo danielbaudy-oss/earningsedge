@@ -1,0 +1,18 @@
+name: Daily Earnings Analysis
+
+on:
+  schedule:
+    # Run at 6:00 AM UTC every day (before US market open)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  trigger-daily:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger daily job on Render
+        run: |
+          curl -X POST https://earningsedge-pnc9.onrender.com/api/cron/daily \
+            --max-time 120 \
+            -H "Content-Type: application/json" \
+            || echo "Request sent (backend may process in background)"

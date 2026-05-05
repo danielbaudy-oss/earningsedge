@@ -174,6 +174,55 @@ async def load_training_data() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np
             features["pe_ratio"] = metrics.get("peTTM", 0) or 0
             features["beta"] = metrics.get("beta", 1) or 1
 
+            # Price momentum / trend from Finnhub
+            features["momentum_13w"] = metrics.get("13WeekPriceReturnDaily", 0) or 0
+            features["momentum_26w"] = metrics.get("26WeekPriceReturnDaily", 0) or 0
+            features["momentum_52w"] = metrics.get("52WeekPriceReturnDaily", 0) or 0
+            features["momentum_mtd"] = metrics.get("monthToDatePriceReturnDaily", 0) or 0
+            features["momentum_5d"] = metrics.get("5DayPriceReturnDaily", 0) or 0
+            features["price_vs_sp500_13w"] = metrics.get("priceRelativeToS&P50013Week", 0) or 0
+            features["ytd_return"] = metrics.get("yearToDatePriceReturnDaily", 0) or 0
+
+            # 52-week range position (how close to high vs low)
+            high_52w = metrics.get("52WeekHigh", 0) or 0
+            low_52w = metrics.get("52WeekLow", 0) or 0
+            if high_52w > 0 and low_52w > 0 and high_52w != low_52w:
+                # Approximate current price from midpoint (we don't have exact current)
+                # Use YTD return to estimate position
+                features["range_position_52w"] = max(0, min(1, (high_52w - low_52w * 1.1) / (high_52w - low_52w)))
+            else:
+                features["range_position_52w"] = 0.5
+
+            # Earnings target hit patterns
+            # How often does this stock beat AND go up? (the correlation matters)
+            beat_and_up = 0
+            beat_and_down = 0
+            miss_and_down = 0
+            miss_and_up = 0
+            prior = earnings[i + 1:]
+            for p in prior[:6]:
+                surprise = p.get("eps_surprise_pct", 0) or 0
+                move = p.get("price_change_pct")
+                if move is not None:
+                    if surprise > 0 and move > 0:
+                        beat_and_up += 1
+                    elif surprise > 0 and move <= 0:
+                        beat_and_down += 1
+                    elif surprise <= 0 and move < 0:
+                        miss_and_down += 1
+                    elif surprise <= 0 and move >= 0:
+                        miss_and_up += 1
+
+            total_with_moves = beat_and_up + beat_and_down + miss_and_down + miss_and_up
+            if total_with_moves > 0:
+                features["beat_leads_to_up_rate"] = beat_and_up / max(beat_and_up + beat_and_down, 1)
+                features["miss_leads_to_down_rate"] = miss_and_down / max(miss_and_down + miss_and_up, 1)
+                features["reaction_predictability"] = (beat_and_up + miss_and_down) / total_with_moves
+            else:
+                features["beat_leads_to_up_rate"] = 0.5
+                features["miss_leads_to_down_rate"] = 0.5
+                features["reaction_predictability"] = 0.5
+
             all_features.append(features)
 
             # Targets

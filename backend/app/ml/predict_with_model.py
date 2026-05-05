@@ -208,15 +208,54 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     features["pe_ratio"] = metrics.get("peTTM", 0) or 0
     features["beta"] = metrics.get("beta", 1) or 1
 
-    # Price momentum from Finnhub metrics (already fetched above, no extra API call)
-    # Use 13-week return as primary momentum signal (most relevant for earnings)
-    momentum_30d = metrics.get("monthToDatePriceReturnDaily", 0) or 0
+    # Price momentum / trend from Finnhub
     momentum_13w = metrics.get("13WeekPriceReturnDaily", 0) or 0
-    # Use the stronger signal: if 13-week trend is very negative, that dominates
-    momentum_signal = momentum_13w if abs(momentum_13w) > abs(momentum_30d) else momentum_30d
+    momentum_mtd = metrics.get("monthToDatePriceReturnDaily", 0) or 0
+    momentum_signal = momentum_13w if abs(momentum_13w) > abs(momentum_mtd) else momentum_mtd
 
-    features["momentum_30d"] = momentum_signal
-    features["momentum_7d"] = metrics.get("5DayPriceReturnDaily", 0) or 0
+    features["momentum_13w"] = momentum_13w
+    features["momentum_26w"] = metrics.get("26WeekPriceReturnDaily", 0) or 0
+    features["momentum_52w"] = metrics.get("52WeekPriceReturnDaily", 0) or 0
+    features["momentum_mtd"] = momentum_mtd
+    features["momentum_5d"] = metrics.get("5DayPriceReturnDaily", 0) or 0
+    features["price_vs_sp500_13w"] = metrics.get("priceRelativeToS&P50013Week", 0) or 0
+    features["ytd_return"] = metrics.get("yearToDatePriceReturnDaily", 0) or 0
+
+    # 52-week range position
+    high_52w = metrics.get("52WeekHigh", 0) or 0
+    low_52w = metrics.get("52WeekLow", 0) or 0
+    if high_52w > 0 and low_52w > 0 and high_52w != low_52w:
+        features["range_position_52w"] = max(0, min(1, (high_52w - low_52w * 1.1) / (high_52w - low_52w)))
+    else:
+        features["range_position_52w"] = 0.5
+
+    # Earnings target hit patterns (beat → stock up correlation)
+    beat_and_up = 0
+    beat_and_down = 0
+    miss_and_down = 0
+    miss_and_up = 0
+    for p in earnings[:6]:
+        surprise = p.get("eps_surprise_pct", 0) or 0
+        move = p.get("price_change_pct")
+        if move is not None:
+            if surprise > 0 and move > 0:
+                beat_and_up += 1
+            elif surprise > 0 and move <= 0:
+                beat_and_down += 1
+            elif surprise <= 0 and move < 0:
+                miss_and_down += 1
+            elif surprise <= 0 and move >= 0:
+                miss_and_up += 1
+
+    total_with_moves = beat_and_up + beat_and_down + miss_and_down + miss_and_up
+    if total_with_moves > 0:
+        features["beat_leads_to_up_rate"] = beat_and_up / max(beat_and_up + beat_and_down, 1)
+        features["miss_leads_to_down_rate"] = miss_and_down / max(miss_and_down + miss_and_up, 1)
+        features["reaction_predictability"] = (beat_and_up + miss_and_down) / total_with_moves
+    else:
+        features["beat_leads_to_up_rate"] = 0.5
+        features["miss_leads_to_down_rate"] = 0.5
+        features["reaction_predictability"] = 0.5
 
     # Create DataFrame with correct feature order
     X = pd.DataFrame([features])
@@ -257,7 +296,7 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     elif direction_prob < 0.45:
         expected_move = -avg_abs_move * (0.5 - direction_prob) * 2
     else:
-        expected_move = raw_move + (momentum_30d * 0.03)
+        expected_move = raw_move + (momentum_signal * 0.03)
 
     # Risk score
     beta = features.get("beta", 1)

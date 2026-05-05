@@ -15,7 +15,7 @@ export default function PriceChartInner({ prices }: PriceChartInnerProps) {
   return (
     <div className="mt-4">
       <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-        <span>30-day price</span>
+        <span>YTD price</span>
         <span className={isUp ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
           ${lastPrice.toFixed(2)} ({isUp ? "+" : ""}{(((lastPrice - firstPrice) / firstPrice) * 100).toFixed(1)}%)
         </span>

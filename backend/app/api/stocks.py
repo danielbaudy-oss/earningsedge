@@ -83,7 +83,7 @@ async def get_stock_chart(ticker: str):
     settings = get_settings()
 
     today = date.today()
-    from_date = (today - timedelta(days=35)).isoformat()
+    from_date = date(today.year, 1, 1).isoformat()
     to_date = today.isoformat()
 
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker.upper()}/range/1/day/{from_date}/{to_date}"

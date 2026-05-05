@@ -5,7 +5,6 @@ import { StockSearch } from "@/components/StockSearch";
 import { PredictionCard } from "@/components/PredictionCard";
 import { TopPredictions } from "@/components/TopPredictions";
 import { ModeToggle } from "@/components/ModeToggle";
-import { MetricsLegend } from "@/components/MetricsLegend";
 import { useMode } from "@/lib/mode-context";
 
 export default function Dashboard() {
@@ -28,7 +27,6 @@ export default function Dashboard() {
         </p>
         <div className="mx-auto mt-4 flex items-center justify-center gap-4">
           <ModeToggle />
-          <MetricsLegend />
         </div>
         <div className="mx-auto mt-6 max-w-md">
           <StockSearch onSelect={setSelectedTicker} />

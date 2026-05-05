@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getUpcomingPredictions } from "@/lib/api";
 import { PredictionCard } from "@/components/PredictionCard";
-import { MetricsLegend } from "@/components/MetricsLegend";
 import {
   formatPercent,
   getRecommendationColor,
@@ -32,7 +31,6 @@ export default function PredictionsPage() {
           Earnings Predictions
         </h1>
         <div className="flex items-center gap-3">
-          <MetricsLegend />
           <Filter className="h-4 w-4 text-gray-400" />
           {["buy", "sell", "avoid"].map((rec) => (
             <button

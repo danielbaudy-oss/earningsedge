@@ -21,6 +21,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             <a href="/calendar" className="text-sm text-gray-600 hover:text-gray-900">Calendar</a>
             <a href="/predictions" className="text-sm text-gray-600 hover:text-gray-900">Predictions</a>
             <a href="/alerts" className="text-sm text-gray-600 hover:text-gray-900">Alerts</a>
+            <a href="/metrics" className="text-sm text-gray-600 hover:text-gray-900">Metrics</a>
           </div>
         </div>
       </nav>

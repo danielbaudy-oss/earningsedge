@@ -53,14 +53,14 @@ export default function Dashboard() {
       <div className="grid gap-8 lg:grid-cols-2">
         <section>
           <h2 className="mb-4 text-lg font-semibold text-gray-900">
-            {mode === "trader" ? "🔥 Top Trades This Week" : "📊 Best Opportunities This Week"}
+            {mode === "trader" ? "Top Trades Next 7 Days" : "Best Opportunities Next 7 Days"}
           </h2>
           <TopPredictions />
         </section>
 
         <section>
           <h2 className="mb-4 text-lg font-semibold text-gray-900">
-            🚀 Top Picks Next 30 Days
+            Top Picks Next 30 Days
           </h2>
           <Watchlist />
         </section>

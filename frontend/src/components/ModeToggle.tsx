@@ -7,14 +7,12 @@ export function ModeToggle() {
   const { mode, setMode } = useMode();
 
   return (
-    <div className={`flex items-center gap-1 rounded-lg p-1 ${
-      mode === "trader" ? "border border-gray-700 bg-gray-800" : "border border-gray-200 bg-white"
-    }`}>
+    <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1">
       <button
         onClick={() => setMode("trader")}
         className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
           mode === "trader"
-            ? "bg-emerald-500 text-white shadow-sm"
+            ? "bg-green-600 text-white shadow-sm"
             : "text-gray-500 hover:text-gray-700"
         }`}
       >

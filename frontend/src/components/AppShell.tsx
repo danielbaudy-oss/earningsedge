@@ -6,31 +6,21 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const { mode } = useMode();
 
   const bgClass = mode === "trader"
-    ? "bg-gray-900 text-gray-100"
-    : "bg-slate-50 text-gray-900";
-
-  const navClass = mode === "trader"
-    ? "border-b border-gray-700 bg-gray-950"
-    : "border-b border-gray-200 bg-white";
-
-  const linkClass = mode === "trader"
-    ? "text-sm text-gray-400 hover:text-white"
-    : "text-sm text-gray-600 hover:text-gray-900";
-
-  const logoAccent = mode === "trader" ? "text-emerald-400" : "text-green-600";
+    ? "bg-green-50"
+    : "bg-blue-50";
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${bgClass} ${mode === "trader" ? "dark-mode" : ""}`}>
-      <nav className={`${navClass} transition-colors duration-300`}>
+    <div className={`min-h-screen transition-colors duration-300 ${bgClass}`}>
+      <nav className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
-          <a href="/" className="text-xl font-bold">
-            Earnings<span className={logoAccent}>Edge</span>
+          <a href="/" className="text-xl font-bold text-gray-900">
+            Earnings<span className={mode === "trader" ? "text-green-600" : "text-blue-600"}>Edge</span>
           </a>
           <div className="flex items-center gap-6">
-            <a href="/" className={linkClass}>Dashboard</a>
-            <a href="/calendar" className={linkClass}>Calendar</a>
-            <a href="/predictions" className={linkClass}>Predictions</a>
-            <a href="/alerts" className={linkClass}>Alerts</a>
+            <a href="/" className="text-sm text-gray-600 hover:text-gray-900">Dashboard</a>
+            <a href="/calendar" className="text-sm text-gray-600 hover:text-gray-900">Calendar</a>
+            <a href="/predictions" className="text-sm text-gray-600 hover:text-gray-900">Predictions</a>
+            <a href="/alerts" className="text-sm text-gray-600 hover:text-gray-900">Alerts</a>
           </div>
         </div>
       </nav>

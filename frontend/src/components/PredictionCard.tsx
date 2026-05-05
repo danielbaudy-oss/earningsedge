@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { getPrediction } from "@/lib/api";
 import { formatPercent, getRecommendationColor } from "@/lib/utils";
-import { useMode } from "@/lib/mode-context";
 import { TrendingUp, TrendingDown, AlertTriangle, Info, Shield, Target } from "lucide-react";
 
 interface PredictionCardProps {
@@ -38,46 +37,27 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
     avoid: <AlertTriangle className="h-6 w-6" />,
   };
 
-  const { mode } = useMode();
-  const cardClass = mode === "trader"
-    ? "rounded-xl border border-gray-700 bg-gray-800 p-6 shadow-lg"
-    : "card";
-  const textPrimary = mode === "trader" ? "text-white" : "text-gray-900";
-  const textSecondary = mode === "trader" ? "text-gray-400" : "text-gray-500";
-  const textMuted = mode === "trader" ? "text-gray-500" : "text-gray-400";
-  const metricBg = mode === "trader" ? "bg-gray-900" : "bg-gray-50";
-  const reasonBg = mode === "trader" ? "border-gray-700 bg-gray-900" : "border-gray-100 bg-white";
-
   const totalScore = prediction.feature_importance?.total_score;
   const riskScore = prediction.feature_importance?.risk_score;
   const topReasons = prediction.feature_importance?.top_reasons as string[] | undefined;
 
-  // Expected move color
   const moveColor = (prediction.expected_move_pct ?? 0) >= 0
     ? "text-green-700"
     : "text-red-700";
 
   return (
-    <div className={cardClass}>
+    <div className="card">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h3 className={`text-lg font-bold ${textPrimary}`}>
-            {prediction.ticker}
-          </h3>
-          <p className={`text-sm ${textSecondary}`}>{prediction.company_name}</p>
+          <h3 className="text-lg font-bold text-gray-900">{prediction.ticker}</h3>
+          <p className="text-sm text-gray-500">{prediction.company_name}</p>
           {prediction.earnings_date && (
-            <p className={`mt-1 text-xs ${textMuted}`}>
-              📅 Reports: {prediction.earnings_date}
-            </p>
+            <p className="mt-1 text-xs text-gray-400">📅 Reports: {prediction.earnings_date}</p>
           )}
         </div>
-
-        {/* Recommendation Badge */}
         <div className="text-right">
-          <div
-            className={`badge text-lg font-bold uppercase ${getRecommendationColor(prediction.recommendation)}`}
-          >
+          <div className={`badge text-lg font-bold uppercase ${getRecommendationColor(prediction.recommendation)}`}>
             {recIcon[prediction.recommendation]}
             <span className="ml-2">{prediction.recommendation}</span>
           </div>
@@ -89,28 +69,25 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
         </div>
       </div>
 
-      {/* Main Metrics — Simple & Clear */}
+      {/* Main Metrics */}
       <div className="mt-6 grid grid-cols-3 gap-4">
-        {/* Expected Move — THE key number */}
-        <div className={`rounded-lg ${metricBg} p-3 text-center`}>
-          <p className={`text-xs ${textSecondary}`}>Expected Move</p>
+        <div className="rounded-lg bg-gray-50 p-3 text-center">
+          <p className="text-xs text-gray-500">Expected Move</p>
           <p className={`text-2xl font-bold ${moveColor}`}>
             {prediction.expected_move_pct !== undefined
               ? `${prediction.expected_move_pct >= 0 ? "+" : ""}${prediction.expected_move_pct.toFixed(1)}%`
               : "—"}
           </p>
-          <p className={`text-xs ${textMuted}`}>after earnings</p>
+          <p className="text-xs text-gray-400">after earnings</p>
         </div>
-
-        {/* Will they beat? */}
-        <div className={`rounded-lg ${metricBg} p-3 text-center`}>
-          <p className={`text-xs ${textSecondary}`}>Beats Earnings?</p>
-          <p className={`text-2xl font-bold ${textPrimary}`}>
+        <div className="rounded-lg bg-gray-50 p-3 text-center">
+          <p className="text-xs text-gray-500">Beats Earnings?</p>
+          <p className="text-2xl font-bold text-gray-900">
             {prediction.beat_probability
               ? `${(prediction.beat_probability * 100).toFixed(0)}%`
               : "—"}
           </p>
-          <p className={`text-xs ${textMuted}`}>
+          <p className="text-xs text-gray-400">
             {prediction.beat_probability && prediction.beat_probability > 0.65
               ? "likely yes"
               : prediction.beat_probability && prediction.beat_probability < 0.4
@@ -118,16 +95,14 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
               : "uncertain"}
           </p>
         </div>
-
-        {/* Stock goes up? */}
-        <div className={`rounded-lg ${metricBg} p-3 text-center`}>
-          <p className={`text-xs ${textSecondary}`}>Stock Goes Up?</p>
-          <p className={`text-2xl font-bold ${textPrimary}`}>
+        <div className="rounded-lg bg-gray-50 p-3 text-center">
+          <p className="text-xs text-gray-500">Stock Goes Up?</p>
+          <p className="text-2xl font-bold text-gray-900">
             {prediction.price_up_probability
               ? `${(prediction.price_up_probability * 100).toFixed(0)}%`
               : "—"}
           </p>
-          <p className={`text-xs ${textMuted}`}>
+          <p className="text-xs text-gray-400">
             {prediction.price_up_probability && prediction.price_up_probability > 0.6
               ? "likely yes"
               : prediction.price_up_probability && prediction.price_up_probability < 0.4
@@ -141,7 +116,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
       {riskScore !== undefined && (
         <div className="mt-4">
           <div className="flex items-center justify-between text-xs">
-            <span className={`flex items-center gap-1 ${textSecondary}`}>
+            <span className="flex items-center gap-1 text-gray-500">
               <Shield className="h-3 w-3" /> Risk Level
             </span>
             <span className={`font-medium ${
@@ -150,7 +125,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
               {riskScore > 60 ? "High" : riskScore > 35 ? "Medium" : "Low"} ({riskScore}%)
             </span>
           </div>
-          <div className={`mt-1 h-2 w-full rounded-full ${mode === "trader" ? "bg-gray-700" : "bg-gray-100"}`}>
+          <div className="mt-1 h-2 w-full rounded-full bg-gray-100">
             <div
               className={`h-2 rounded-full ${
                 riskScore > 60 ? "bg-red-500" : riskScore > 35 ? "bg-amber-500" : "bg-green-500"
@@ -161,16 +136,16 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
         </div>
       )}
 
-      {/* Top 3 Reasons — Clear bullets */}
+      {/* Top 3 Reasons */}
       {topReasons && topReasons.length > 0 && (
-        <div className={`mt-5 rounded-lg border ${reasonBg} p-4`}>
-          <div className={`flex items-center gap-2 text-sm font-medium ${textPrimary}`}>
+        <div className="mt-5 rounded-lg border border-gray-100 bg-white p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Target className="h-4 w-4" />
             Why this prediction
           </div>
           <ul className="mt-2 space-y-1.5">
             {topReasons.map((reason, i) => (
-              <li key={i} className={`flex items-start gap-2 text-sm ${textSecondary}`}>
+              <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
                 <span className="mt-0.5 text-xs">
                   {i === 0 ? "🔑" : i === 1 ? "📊" : "💡"}
                 </span>
@@ -181,14 +156,14 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
         </div>
       )}
 
-      {/* Fallback explanation if no top_reasons */}
+      {/* Fallback explanation */}
       {!topReasons && prediction.explanation_text && (
-        <div className={`mt-5 rounded-lg ${metricBg} p-4`}>
-          <div className={`flex items-center gap-2 text-sm font-medium ${textPrimary}`}>
+        <div className="mt-5 rounded-lg bg-gray-50 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Info className="h-4 w-4" />
             Why this prediction
           </div>
-          <p className={`mt-2 whitespace-pre-line text-sm ${textSecondary}`}>
+          <p className="mt-2 whitespace-pre-line text-sm text-gray-600">
             {prediction.explanation_text}
           </p>
         </div>

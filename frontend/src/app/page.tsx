@@ -4,6 +4,7 @@ import { useState } from "react";
 import { StockSearch } from "@/components/StockSearch";
 import { PredictionCard } from "@/components/PredictionCard";
 import { TopPredictions } from "@/components/TopPredictions";
+import { Watchlist } from "@/components/Watchlist";
 import { ModeToggle } from "@/components/ModeToggle";
 import { useMode } from "@/lib/mode-context";
 
@@ -40,13 +41,22 @@ export default function Dashboard() {
         </section>
       )}
 
-      {/* Dashboard — Single focused section */}
-      <section>
-        <h2 className="mb-4 text-lg font-semibold text-gray-900">
-          {mode === "trader" ? "🔥 Top Trades This Week" : "📊 Best Opportunities This Week"}
-        </h2>
-        <TopPredictions />
-      </section>
+      {/* Dashboard — Top Trades + Watchlist */}
+      <div className="grid gap-8 lg:grid-cols-2">
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
+            {mode === "trader" ? "🔥 Top Trades This Week" : "📊 Best Opportunities This Week"}
+          </h2>
+          <TopPredictions />
+        </section>
+
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
+            🚀 Top Picks Next 30 Days
+          </h2>
+          <Watchlist />
+        </section>
+      </div>
     </div>
   );
 }

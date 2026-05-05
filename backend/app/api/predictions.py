@@ -140,6 +140,73 @@ async def get_upcoming_predictions(
     return predictions
 
 
+@router.get("/watchlist", response_model=list[PredictionResponse])
+async def get_watchlist(limit: int = Query(3, le=10)):
+    """
+    Top picks for the next 30 days.
+    Returns the highest-conviction, highest-expected-move BUY predictions
+    reporting in the next month. These are stocks to watch and position in early.
+    """
+    sb = get_supabase()
+    from datetime import timedelta
+    today = date.today().isoformat()
+    next_month = (date.today() + timedelta(days=30)).isoformat()
+
+    result = (
+        sb.table("predictions")
+        .select("*, stocks(ticker, company_name), earnings_events(report_date)")
+        .eq("recommendation", "buy")
+        .order("confidence_score", desc=True)
+        .limit(50)
+        .execute()
+    )
+
+    # Filter to next 30 days, sort by score * expected_move
+    candidates = []
+    for pred in result.data:
+        event = pred.get("earnings_events") or {}
+        stock = pred.get("stocks") or {}
+        report_date = event.get("report_date", "")
+        if not report_date or report_date < today or report_date > next_month:
+            continue
+        # Skip this week (those are in Top Trades already)
+        next_week = (date.today() + timedelta(days=7)).isoformat()
+        if report_date <= next_week:
+            continue
+
+        score = pred.get("confidence_score", 0)
+        move = pred.get("expected_move_pct", 0) or 0
+        opportunity_score = score * max(move, 0.5)  # Rank by combined signal
+
+        candidates.append((opportunity_score, pred, stock, event))
+
+    # Sort by opportunity and take top N
+    candidates.sort(key=lambda x: x[0], reverse=True)
+
+    return [
+        PredictionResponse(
+            id=pred["id"],
+            ticker=stock.get("ticker"),
+            company_name=stock.get("company_name"),
+            earnings_date=event.get("report_date"),
+            recommendation=pred["recommendation"],
+            confidence_score=pred["confidence_score"],
+            beat_probability=pred.get("beat_probability"),
+            miss_probability=pred.get("miss_probability"),
+            price_up_probability=pred.get("price_up_probability"),
+            price_down_probability=pred.get("price_down_probability"),
+            expected_move_pct=pred.get("expected_move_pct"),
+            expected_volatility=pred.get("expected_volatility"),
+            predicted_direction=pred.get("predicted_direction"),
+            feature_importance=pred.get("feature_importance"),
+            explanation_text=pred.get("explanation_text"),
+            model_version=pred.get("model_version", ""),
+            prediction_date=pred.get("prediction_date"),
+        )
+        for _, pred, stock, event in candidates[:limit]
+    ]
+
+
 @router.post("/analyze/{ticker}")
 async def analyze_stock(ticker: str, mode: Optional[str] = Query("trader")):
     """

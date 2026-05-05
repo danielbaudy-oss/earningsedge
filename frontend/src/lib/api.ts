@@ -62,3 +62,8 @@ export async function getUpcomingPredictions(params?: {
   const { data } = await api.get("/predictions/upcoming/all", { params });
   return data;
 }
+
+export async function getWatchlist(): Promise<Prediction[]> {
+  const { data } = await api.get("/predictions/watchlist");
+  return data;
+}

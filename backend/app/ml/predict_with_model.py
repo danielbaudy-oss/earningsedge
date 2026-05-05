@@ -205,6 +205,27 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     metrics_data = await fetch_finnhub(client, "stock/metric", {"symbol": ticker, "metric": "all"})
     metrics = (metrics_data or {}).get("metric", {}) if isinstance(metrics_data, dict) else {}
 
+    # Also fetch company profile to get the real name (if we only have ticker as name)
+    profile = await fetch_finnhub(client, "stock/profile2", {"symbol": ticker})
+    if profile and isinstance(profile, dict) and profile.get("name"):
+        company_name = profile["name"]
+        # Update stock record with real name
+        try:
+            import httpx as hx
+            headers = {
+                "apikey": settings.supabase_service_key,
+                "Authorization": f"Bearer {settings.supabase_service_key}",
+                "Content-Type": "application/json",
+            }
+            url = f"{settings.supabase_url}/rest/v1/stocks?id=eq.{stock_id}"
+            async with hx.AsyncClient() as patch_client:
+                await patch_client.patch(url, json={
+                    "company_name": company_name,
+                    "sector": profile.get("finnhubIndustry", ""),
+                }, headers=headers)
+        except Exception:
+            pass
+
     features["revenue_growth"] = metrics.get("revenueGrowthTTMYoy", 0) or 0
     features["eps_growth"] = metrics.get("epsGrowthTTMYoy", 0) or 0
     features["operating_margin"] = metrics.get("operatingMarginTTM", 0) or 0

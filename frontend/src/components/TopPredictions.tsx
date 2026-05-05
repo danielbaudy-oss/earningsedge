@@ -72,7 +72,7 @@ export function TopPredictions() {
                 <div>
                   <p className="font-medium text-gray-900">
                     {pred.ticker}
-                    {pred.company_name && (
+                    {pred.company_name && pred.company_name !== pred.ticker && (
                       <span className="ml-2 text-xs font-normal text-gray-500">{pred.company_name}</span>
                     )}
                   </p>

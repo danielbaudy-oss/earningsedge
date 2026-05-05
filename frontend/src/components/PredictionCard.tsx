@@ -110,7 +110,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
       )}
 
       {/* Main Metrics */}
-      <div className="mt-6 grid grid-cols-3 gap-4">>
+      <div className="mt-6 grid grid-cols-3 gap-4">
         <div className="rounded-lg bg-gray-50 p-3 text-center">
           <p className="text-xs text-gray-500">Expected Move</p>
           <p className={`text-2xl font-bold ${moveColor}`}>

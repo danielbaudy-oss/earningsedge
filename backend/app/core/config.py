@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_service_key: str = ""
 
+    # Telegram
+    telegram_bot_token: str = ""
+
     # ML
     model_path: str = "./models"
     retrain_hour: int = 2

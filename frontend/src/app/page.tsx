@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { StockSearch } from "@/components/StockSearch";
 import { PredictionCard } from "@/components/PredictionCard";
-import { UpcomingEarnings } from "@/components/UpcomingEarnings";
 import { TopPredictions } from "@/components/TopPredictions";
 import { ModeToggle } from "@/components/ModeToggle";
 import { MetricsLegend } from "@/components/MetricsLegend";
@@ -43,22 +42,13 @@ export default function Dashboard() {
         </section>
       )}
 
-      {/* Dashboard Grid */}
-      <div className="grid gap-8 lg:grid-cols-2">
-        <section>
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">
-            {mode === "trader" ? "🔥 Top Trades" : "📊 Top Predictions"}
-          </h2>
-          <TopPredictions />
-        </section>
-
-        <section>
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">
-            {mode === "trader" ? "⏰ Reporting Soon" : "📅 Upcoming Earnings"}
-          </h2>
-          <UpcomingEarnings />
-        </section>
-      </div>
+      {/* Dashboard — Single focused section */}
+      <section>
+        <h2 className="mb-4 text-lg font-semibold text-gray-900">
+          {mode === "trader" ? "🔥 Top Trades This Week" : "📊 Best Opportunities This Week"}
+        </h2>
+        <TopPredictions />
+      </section>
     </div>
   );
 }

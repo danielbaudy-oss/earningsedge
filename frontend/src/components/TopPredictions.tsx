@@ -5,14 +5,14 @@ import { useQuery } from "@tanstack/react-query";
 import { getUpcomingPredictions } from "@/lib/api";
 import { formatPercent, getRecommendationColor, getConfidenceColor } from "@/lib/utils";
 import { PredictionCard } from "@/components/PredictionCard";
-import { TrendingUp, X } from "lucide-react";
+import { TrendingUp, TrendingDown, AlertTriangle, X } from "lucide-react";
 
 export function TopPredictions() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
 
   const { data: predictions, isLoading } = useQuery({
     queryKey: ["topPredictions"],
-    queryFn: () => getUpcomingPredictions({ min_confidence: 0.5, recommendation: "buy" }),
+    queryFn: () => getUpcomingPredictions({ min_confidence: 0.0 }),
   });
 
   if (isLoading) {
@@ -30,23 +30,35 @@ export function TopPredictions() {
   if (!predictions?.length) {
     return (
       <div className="card text-center text-gray-500">
-        No high-confidence buy signals right now
+        No buy opportunities this week
       </div>
     );
   }
 
-  // Sort by confidence * expected move (best opportunities first)
-  const sorted = [...predictions].sort((a, b) => {
-    const scoreA = a.confidence_score * Math.max(a.expected_move_pct ?? 0, 0);
-    const scoreB = b.confidence_score * Math.max(b.expected_move_pct ?? 0, 0);
-    return scoreB - scoreA;
-  });
+  // Filter to buys only, sort by score
+  const buys = predictions
+    .filter((p) => p.recommendation === "buy")
+    .sort((a, b) => b.confidence_score - a.confidence_score);
+
+  if (!buys.length) {
+    return (
+      <div className="card text-center text-gray-500">
+        No buy opportunities this week — all signals are Avoid or Sell
+      </div>
+    );
+  }
+
+  const recIcon = {
+    buy: <TrendingUp className="h-3.5 w-3.5" />,
+    sell: <TrendingDown className="h-3.5 w-3.5" />,
+    avoid: <AlertTriangle className="h-3.5 w-3.5" />,
+  };
 
   return (
     <>
       <div className="card">
         <div className="divide-y divide-gray-100">
-          {sorted.slice(0, 8).map((pred) => (
+          {buys.slice(0, 8).map((pred) => (
             <button
               key={pred.id}
               onClick={() => setSelectedTicker(pred.ticker ?? null)}

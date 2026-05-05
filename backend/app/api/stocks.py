@@ -76,44 +76,36 @@ async def get_stock(ticker: str):
 
 @router.get("/{ticker}/chart")
 async def get_stock_chart(ticker: str):
-    """Get 30-day price history for a stock chart."""
+    """Get 30-day price history for a stock chart using Polygon."""
     import httpx
-    import time
     from datetime import date, timedelta
     from app.core.config import get_settings
     settings = get_settings()
 
     today = date.today()
-    from_date = today - timedelta(days=35)
-    from_ts = int(time.mktime(from_date.timetuple()))
-    to_ts = int(time.mktime(today.timetuple()))
+    from_date = (today - timedelta(days=35)).isoformat()
+    to_date = today.isoformat()
+
+    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker.upper()}/range/1/day/{from_date}/{to_date}"
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            "https://finnhub.io/api/v1/stock/candle",
-            params={
-                "symbol": ticker.upper(),
-                "resolution": "D",
-                "from": from_ts,
-                "to": to_ts,
-                "token": settings.finnhub_api_key,
-            },
-        )
+        resp = await client.get(url, params={
+            "adjusted": "true",
+            "sort": "asc",
+            "apiKey": settings.polygon_api_key,
+        })
 
     if resp.status_code != 200:
         return {"prices": []}
 
     data = resp.json()
-    if data.get("s") != "ok":
+    results = data.get("results", [])
+    if not results:
         return {"prices": []}
 
-    # Return simplified price data
-    closes = data.get("c", [])
-    timestamps = data.get("t", [])
-
     prices = [
-        {"date": ts, "price": round(price, 2)}
-        for ts, price in zip(timestamps, closes)
+        {"date": bar["t"], "price": round(bar["c"], 2)}
+        for bar in results
     ]
 
     return {"prices": prices, "ticker": ticker.upper()}

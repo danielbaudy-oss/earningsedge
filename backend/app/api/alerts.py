@@ -1,11 +1,8 @@
-"""Alert management endpoints."""
+"""Alert management endpoints using Supabase client."""
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.db.database import get_db
-from app.db.models import Alert, Stock
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, HTTPException
+from app.db.supabase_client import get_supabase
+from pydantic import BaseModel
 from typing import Optional
 
 router = APIRouter()
@@ -25,31 +22,35 @@ class AlertResponse(BaseModel):
     days_before: int
     is_active: bool
 
-    class Config:
-        from_attributes = True
-
 
 @router.post("/", response_model=AlertResponse)
-async def create_alert(alert: AlertCreate, db: AsyncSession = Depends(get_db)):
+async def create_alert(alert: AlertCreate):
     """Create an earnings alert for a stock."""
-    stock_query = select(Stock).where(Stock.ticker == alert.ticker.upper())
-    result = await db.execute(stock_query)
-    stock = result.scalar_one_or_none()
-    if not stock:
+    sb = get_supabase()
+
+    # Find stock
+    stock_result = sb.table("stocks").select("id,ticker,company_name").eq("ticker", alert.ticker.upper()).execute()
+    if not stock_result.data:
         raise HTTPException(status_code=404, detail="Stock not found")
 
-    new_alert = Alert(
-        stock_id=stock.id,
-        user_email=alert.email,
-        days_before=alert.days_before,
+    stock = stock_result.data[0]
+
+    # Create alert
+    new_alert = (
+        sb.table("alerts")
+        .insert({
+            "stock_id": stock["id"],
+            "user_email": alert.email,
+            "days_before": alert.days_before,
+            "is_active": True,
+        })
+        .execute()
     )
-    db.add(new_alert)
-    await db.flush()
 
     return AlertResponse(
-        id=new_alert.id,
-        ticker=stock.ticker,
-        company_name=stock.company_name,
+        id=new_alert.data[0]["id"],
+        ticker=stock["ticker"],
+        company_name=stock["company_name"],
         email=alert.email,
         days_before=alert.days_before,
         is_active=True,
@@ -57,24 +58,26 @@ async def create_alert(alert: AlertCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/user/{email}", response_model=list[AlertResponse])
-async def get_user_alerts(email: str, db: AsyncSession = Depends(get_db)):
+async def get_user_alerts(email: str):
     """Get all alerts for a user."""
-    query = (
-        select(Alert, Stock)
-        .join(Stock, Alert.stock_id == Stock.id)
-        .where(Alert.user_email == email, Alert.is_active == True)
+    sb = get_supabase()
+
+    result = (
+        sb.table("alerts")
+        .select("*, stocks(ticker, company_name)")
+        .eq("user_email", email)
+        .eq("is_active", True)
+        .execute()
     )
-    result = await db.execute(query)
-    rows = result.all()
 
     return [
         AlertResponse(
-            id=alert.id,
-            ticker=stock.ticker,
-            company_name=stock.company_name,
-            email=alert.user_email,
-            days_before=alert.days_before,
-            is_active=alert.is_active,
+            id=row["id"],
+            ticker=(row.get("stocks") or {}).get("ticker", ""),
+            company_name=(row.get("stocks") or {}).get("company_name", ""),
+            email=row["user_email"],
+            days_before=row["days_before"],
+            is_active=row["is_active"],
         )
-        for alert, stock in rows
+        for row in result.data
     ]

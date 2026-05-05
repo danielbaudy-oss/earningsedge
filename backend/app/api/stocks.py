@@ -1,13 +1,9 @@
-"""Stock search and detail endpoints."""
+"""Stock search and detail endpoints using Supabase client."""
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
-from app.db.database import get_db
-from app.db.models import Stock, FinancialMetric
+from fastapi import APIRouter, Query, HTTPException
+from app.db.supabase_client import get_supabase
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
 router = APIRouter()
 
@@ -20,9 +16,6 @@ class StockResponse(BaseModel):
     industry: Optional[str] = None
     market_cap: Optional[float] = None
     exchange: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class StockDetailResponse(StockResponse):
@@ -38,47 +31,44 @@ class StockDetailResponse(StockResponse):
 async def search_stocks(
     q: str = Query(..., min_length=1, description="Search query"),
     limit: int = Query(20, le=50),
-    db: AsyncSession = Depends(get_db),
 ):
     """Search stocks by ticker or company name."""
-    query = select(Stock).where(
-        or_(
-            Stock.ticker.ilike(f"%{q}%"),
-            Stock.company_name.ilike(f"%{q}%"),
-        ),
-        Stock.is_active == True,
-    ).limit(limit)
-    result = await db.execute(query)
-    return result.scalars().all()
+    sb = get_supabase()
+    result = (
+        sb.table("stocks")
+        .select("*")
+        .or_(f"ticker.ilike.%{q}%,company_name.ilike.%{q}%")
+        .eq("is_active", True)
+        .limit(limit)
+        .execute()
+    )
+    return result.data
 
 
 @router.get("/{ticker}", response_model=StockDetailResponse)
-async def get_stock(ticker: str, db: AsyncSession = Depends(get_db)):
+async def get_stock(ticker: str):
     """Get stock details with latest financial metrics."""
-    query = select(Stock).where(Stock.ticker == ticker.upper())
-    result = await db.execute(query)
-    stock = result.scalar_one_or_none()
-    if not stock:
-        from fastapi import HTTPException
+    sb = get_supabase()
+
+    # Get stock
+    stock_result = sb.table("stocks").select("*").eq("ticker", ticker.upper()).execute()
+    if not stock_result.data:
         raise HTTPException(status_code=404, detail="Stock not found")
 
-    # Get latest financial metrics
-    metrics_query = (
-        select(FinancialMetric)
-        .where(FinancialMetric.stock_id == stock.id)
-        .order_by(FinancialMetric.period_date.desc())
-        .limit(1)
-    )
-    metrics_result = await db.execute(metrics_query)
-    metrics = metrics_result.scalar_one_or_none()
+    stock = stock_result.data[0]
 
-    response = StockDetailResponse.model_validate(stock)
-    if metrics:
-        response.pe_ratio = metrics.pe_ratio
-        response.forward_pe = metrics.forward_pe
-        response.revenue_growth_yoy = metrics.revenue_growth_yoy
-        response.eps_growth_yoy = metrics.eps_growth_yoy
-        response.gross_margin = metrics.gross_margin
-        response.debt_to_equity = metrics.debt_to_equity
+    # Get latest financial metrics
+    metrics_result = (
+        sb.table("financial_metrics")
+        .select("pe_ratio,forward_pe,revenue_growth_yoy,eps_growth_yoy,gross_margin,debt_to_equity")
+        .eq("stock_id", stock["id"])
+        .order("period_date", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    response = {**stock}
+    if metrics_result.data:
+        response.update(metrics_result.data[0])
 
     return response

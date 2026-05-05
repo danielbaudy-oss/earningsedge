@@ -40,7 +40,7 @@ class NewsAPIClient:
 
 
 class RedditClient:
-    """Client for Reddit API (via OAuth)."""
+    """Client for Reddit API (via OAuth). Optional — works without credentials."""
 
     AUTH_URL = "https://www.reddit.com/api/v1/access_token"
     BASE_URL = "https://oauth.reddit.com"
@@ -48,6 +48,7 @@ class RedditClient:
     def __init__(self):
         self.client_id = settings.reddit_client_id
         self.client_secret = settings.reddit_client_secret
+        self.enabled = bool(self.client_id and self.client_secret)
         self.client = httpx.AsyncClient(timeout=30.0)
         self.token = None
 
@@ -65,7 +66,10 @@ class RedditClient:
     async def get_stock_mentions(
         self, ticker: str, subreddits: list[str] = None
     ) -> list:
-        """Search Reddit for stock mentions."""
+        """Search Reddit for stock mentions. Returns empty if not configured."""
+        if not self.enabled:
+            return []
+
         if not self.token:
             await self._authenticate()
 

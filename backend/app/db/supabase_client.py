@@ -53,11 +53,26 @@ class TableQuery:
         return self
 
     def gte(self, column: str, value) -> "TableQuery":
-        self.params[column] = f"gte.{value}"
+        existing = self.params.get(column)
+        if existing:
+            # Already have a filter on this column, combine them
+            self.params[column] = f"gte.{value}"
+            # Store the other filter with a different approach
+            if "and" not in self.params:
+                self.params["and"] = f"({column}.{existing},{column}.gte.{value})"
+            del self.params[column]
+        else:
+            self.params[column] = f"gte.{value}"
         return self
 
     def lte(self, column: str, value) -> "TableQuery":
-        self.params[column] = f"lte.{value}"
+        existing = self.params.get(column)
+        if existing:
+            # Combine: use PostgREST 'and' filter
+            self.params["and"] = f"({column}.{existing},{column}.lte.{value})"
+            del self.params[column]
+        else:
+            self.params[column] = f"lte.{value}"
         return self
 
     def or_(self, filters: str) -> "TableQuery":

@@ -41,12 +41,11 @@ async def health_check():
 
 
 @app.post("/api/cron/daily")
-async def trigger_daily_job(background_tasks: "BackgroundTasks"):
+async def trigger_daily_job():
     """
     Trigger the daily job (calendar sync + feedback loop + retrain + analyze).
-    Call this via external cron (cron-job.org) at 6:00 AM UTC daily.
+    Call this via external cron (GitHub Actions) at 6:00 AM UTC daily.
     """
-    from fastapi import BackgroundTasks
     from app.services.daily_job import run_daily_job
     import asyncio
 

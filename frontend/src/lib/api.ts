@@ -46,7 +46,7 @@ export async function getEarningsHistory(
 
 // Predictions
 export async function getPrediction(ticker: string): Promise<Prediction> {
-  const { data } = await api.get(`/predictions/${ticker}`);
+  const { data } = await api.get(`/predictions/stock/${ticker}`);
   return data;
 }
 

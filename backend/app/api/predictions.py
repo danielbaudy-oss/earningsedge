@@ -32,7 +32,7 @@ class PredictionResponse(BaseModel):
     prediction_date: Optional[str] = None
 
 
-@router.get("/{ticker}", response_model=PredictionResponse)
+@router.get("/stock/{ticker}", response_model=PredictionResponse)
 async def get_prediction(ticker: str):
     """Get latest prediction for a stock's upcoming earnings."""
     sb = get_supabase()

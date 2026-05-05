@@ -1,4 +1,4 @@
-`"""
+"""
 Generate predictions using the trained XGBoost model.
 Combines ML predictions with the multi-factor scoring for the final output.
 

@@ -50,6 +50,11 @@ export async function getPrediction(ticker: string): Promise<Prediction> {
   return data;
 }
 
+export async function analyzeTicker(ticker: string, mode: string = "trader"): Promise<Prediction> {
+  const { data } = await api.post(`/predictions/analyze/${ticker}?mode=${mode}`);
+  return data;
+}
+
 export async function getUpcomingPredictions(params?: {
   min_confidence?: number;
   recommendation?: string;

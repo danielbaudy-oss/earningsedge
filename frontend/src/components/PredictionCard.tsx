@@ -1,18 +1,26 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { getPrediction } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getPrediction, analyzeTicker } from "@/lib/api";
 import { formatPercent, getRecommendationColor } from "@/lib/utils";
-import { TrendingUp, TrendingDown, AlertTriangle, Info, Shield, Target } from "lucide-react";
+import { TrendingUp, TrendingDown, AlertTriangle, Info, Shield, Target, Zap } from "lucide-react";
 
 interface PredictionCardProps {
   ticker: string;
 }
 
 export function PredictionCard({ ticker }: PredictionCardProps) {
+  const queryClient = useQueryClient();
   const { data: prediction, isLoading, error } = useQuery({
     queryKey: ["prediction", ticker],
     queryFn: () => getPrediction(ticker),
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: () => analyzeTicker(ticker),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prediction", ticker] });
+    },
   });
 
   if (isLoading) {
@@ -25,8 +33,19 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
 
   if (error || !prediction) {
     return (
-      <div className="card text-center text-gray-500">
-        <p>No prediction available for {ticker}</p>
+      <div className="card text-center">
+        <p className="text-gray-500">No prediction available for {ticker}</p>
+        <button
+          onClick={() => analyzeMutation.mutate()}
+          disabled={analyzeMutation.isPending}
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+        >
+          <Zap className="h-4 w-4" />
+          {analyzeMutation.isPending ? "Analyzing..." : "Analyze Now"}
+        </button>
+        {analyzeMutation.isError && (
+          <p className="mt-2 text-xs text-red-500">Could not analyze. May lack historical data.</p>
+        )}
       </div>
     );
   }

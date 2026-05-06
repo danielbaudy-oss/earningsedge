@@ -322,10 +322,31 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
 
     direction_prob = max(0.05, min(0.95, direction_prob_raw + momentum_adj))
 
-    # Adjust expected move: direction + historical volatility + momentum
+    # Adjust expected move: use stock-specific volatility, not a flat default
     prior_moves = [e.get("price_change_pct", 0) for e in earnings if e.get("price_change_pct") is not None]
-    avg_abs_move = float(np.mean([abs(m) for m in prior_moves])) if prior_moves else 3.0
-    volatility = float(np.std(prior_moves)) if len(prior_moves) > 1 else 3.0
+
+    if prior_moves and len(prior_moves) >= 2:
+        # Best case: we have actual historical earnings reactions
+        avg_abs_move = float(np.mean([abs(m) for m in prior_moves]))
+        volatility = float(np.std(prior_moves))
+    else:
+        # Fallback: estimate from beta and 3-month return volatility
+        beta = features.get("beta", 1)
+        return_3m_std = metrics.get("3MonthADReturnStd", 0) or 0
+
+        if return_3m_std > 0:
+            # Daily std * sqrt(1) for 1-day earnings move estimate
+            # Typical earnings move is ~2-3x a normal daily move
+            daily_vol = return_3m_std / 100  # Convert from percentage
+            avg_abs_move = daily_vol * 2.5 * 100  # Back to percentage, scaled for earnings
+        else:
+            # Last resort: use beta as proxy (higher beta = bigger moves)
+            avg_abs_move = max(1.5, beta * 2.5)
+
+        volatility = avg_abs_move * 1.2
+
+    # Cap at reasonable bounds
+    avg_abs_move = max(0.5, min(avg_abs_move, 20.0))
 
     if direction_prob > 0.55:
         expected_move = avg_abs_move * (direction_prob - 0.5) * 2
@@ -333,6 +354,9 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
         expected_move = -avg_abs_move * (0.5 - direction_prob) * 2
     else:
         expected_move = raw_move + (momentum_signal * 0.03)
+
+    # Round to avoid false precision
+    expected_move = round(expected_move, 1)
 
     # Risk score
     beta = features.get("beta", 1)

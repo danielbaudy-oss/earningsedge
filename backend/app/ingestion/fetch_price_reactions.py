@@ -218,3 +218,71 @@ async def fetch_recent_reactions(days_back: int = 7) -> int:
 
     await client.aclose()
     return fetched
+
+
+async def backfill_price_reactions(max_fetches: int = 10) -> int:
+    """
+    Slowly backfill historical price reactions.
+    Grabs a few each day to stay within Polygon rate limits.
+    Prioritizes stocks with the most earnings history (better training data).
+    """
+    sb = get_supabase()
+    client = httpx.AsyncClient(timeout=30.0)
+
+    # Get events missing price data (oldest first, so we fill gaps)
+    import httpx as hx
+    headers = {
+        "apikey": settings.supabase_service_key,
+        "Authorization": f"Bearer {settings.supabase_service_key}",
+    }
+    url = f"{settings.supabase_url}/rest/v1/earnings_events"
+    params = {
+        "select": "id,stock_id,report_date,stocks(ticker)",
+        "price_change_pct": "is.null",
+        "eps_actual": "not.is.null",
+        "report_date": f"lte.{date.today().isoformat()}",
+        "order": "report_date.desc",
+        "limit": str(max_fetches),
+    }
+
+    async with hx.AsyncClient(timeout=15.0) as req_client:
+        resp = await req_client.get(url, params=params, headers=headers)
+
+    if resp.status_code != 200:
+        return 0
+
+    events = resp.json()
+    if not events:
+        return 0
+
+    fetched = 0
+    for event in events:
+        stock = event.get("stocks") or {}
+        ticker = stock.get("ticker", "")
+        if not ticker:
+            continue
+
+        report_date = event["report_date"]
+
+        price_before = await get_close_price(client, ticker, report_date)
+        await asyncio.sleep(13)
+
+        price_after = await get_price_after(client, ticker, report_date)
+        await asyncio.sleep(13)
+
+        if price_before and price_after:
+            change_pct = ((price_after - price_before) / price_before) * 100
+            try:
+                patch_url = f"{settings.supabase_url}/rest/v1/earnings_events?id=eq.{event['id']}"
+                async with hx.AsyncClient() as patch_client:
+                    await patch_client.patch(patch_url, json={
+                        "price_before": price_before,
+                        "price_after": price_after,
+                        "price_change_pct": round(change_pct, 2),
+                    }, headers={**headers, "Content-Type": "application/json"})
+                fetched += 1
+            except Exception:
+                pass
+
+    await client.aclose()
+    return fetched

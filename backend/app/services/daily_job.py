@@ -40,6 +40,15 @@ async def run_daily_job():
     except Exception as e:
         print(f"  ⚠️ Price reaction fetch failed: {e}")
 
+    # Step 1c: Backfill — grab a few more historical price reactions each day
+    print("\n📊 Step 1c: Backfilling historical price reactions...")
+    try:
+        from app.ingestion.fetch_price_reactions import backfill_price_reactions
+        backfilled = await backfill_price_reactions(max_fetches=10)
+        print(f"  Backfilled {backfilled} historical reactions")
+    except Exception as e:
+        print(f"  ⚠️ Backfill failed: {e}")
+
     # Step 2: Update outcomes (feedback loop)
     print("\n🔄 Step 2: Updating prediction outcomes...")
     try:

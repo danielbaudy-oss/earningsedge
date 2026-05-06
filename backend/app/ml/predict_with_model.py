@@ -326,27 +326,63 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     prior_moves = [e.get("price_change_pct", 0) for e in earnings if e.get("price_change_pct") is not None]
 
     if prior_moves and len(prior_moves) >= 2:
-        # Best case: we have actual historical earnings reactions
         avg_abs_move = float(np.mean([abs(m) for m in prior_moves]))
         volatility = float(np.std(prior_moves))
     else:
-        # Fallback: estimate from beta and 3-month return volatility
         beta = features.get("beta", 1)
         return_3m_std = metrics.get("3MonthADReturnStd", 0) or 0
 
         if return_3m_std > 0:
-            # Daily std * sqrt(1) for 1-day earnings move estimate
-            # Typical earnings move is ~2-3x a normal daily move
-            daily_vol = return_3m_std / 100  # Convert from percentage
-            avg_abs_move = daily_vol * 2.5 * 100  # Back to percentage, scaled for earnings
+            daily_vol = return_3m_std / 100
+            avg_abs_move = daily_vol * 2.5 * 100
         else:
-            # Last resort: use beta as proxy (higher beta = bigger moves)
             avg_abs_move = max(1.5, beta * 2.5)
 
         volatility = avg_abs_move * 1.2
 
     # Cap at reasonable bounds
     avg_abs_move = max(0.5, min(avg_abs_move, 20.0))
+
+    # --- MAGNITUDE ADJUSTMENT BASED ON CURRENT BEHAVIOR ---
+    # Stocks that have sold off hard may snap back bigger on a beat
+    # Stocks that have run up may have muted upside (already priced in)
+    magnitude_multiplier = 1.0
+
+    if momentum_signal < -25:
+        # Heavily oversold — potential for big snap-back on beat, or continued drop on miss
+        magnitude_multiplier = 1.6
+    elif momentum_signal < -15:
+        # Significant downtrend — amplified reaction expected
+        magnitude_multiplier = 1.35
+    elif momentum_signal < -8:
+        # Moderate downtrend — slightly bigger moves
+        magnitude_multiplier = 1.15
+    elif momentum_signal > 25:
+        # Heavily overbought — upside may be priced in, but downside risk is bigger
+        if direction_prob > 0.5:
+            magnitude_multiplier = 0.7  # Muted upside
+        else:
+            magnitude_multiplier = 1.4  # Amplified downside
+    elif momentum_signal > 15:
+        # Strong uptrend — less room to run up, more room to fall
+        if direction_prob > 0.5:
+            magnitude_multiplier = 0.8
+        else:
+            magnitude_multiplier = 1.25
+    elif momentum_signal > 8:
+        if direction_prob > 0.5:
+            magnitude_multiplier = 0.9
+        else:
+            magnitude_multiplier = 1.1
+
+    # Apply beta scaling — high beta stocks move more
+    beta = features.get("beta", 1)
+    if beta > 1.5:
+        magnitude_multiplier *= 1.15
+    elif beta < 0.7:
+        magnitude_multiplier *= 0.85
+
+    avg_abs_move *= magnitude_multiplier
 
     if direction_prob > 0.55:
         expected_move = avg_abs_move * (direction_prob - 0.5) * 2

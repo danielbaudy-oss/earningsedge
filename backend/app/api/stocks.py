@@ -76,9 +76,9 @@ async def get_stock(ticker: str):
 
 @router.get("/{ticker}/chart")
 async def get_stock_chart(ticker: str):
-    """Get 30-day price history for a stock chart using Polygon."""
+    """Get YTD price history for a stock chart. Tries marketdata.app first, Polygon as fallback."""
     import httpx
-    from datetime import date, timedelta
+    from datetime import date
     from app.core.config import get_settings
     settings = get_settings()
 
@@ -86,8 +86,31 @@ async def get_stock_chart(ticker: str):
     from_date = date(today.year, 1, 1).isoformat()
     to_date = today.isoformat()
 
-    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker.upper()}/range/1/day/{from_date}/{to_date}"
+    # Try marketdata.app first (higher rate limit)
+    if settings.marketdata_api_key:
+        try:
+            headers = {"Authorization": f"Token {settings.marketdata_api_key}"}
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"https://api.marketdata.app/v1/stocks/candles/D/{ticker.upper()}/",
+                    headers=headers,
+                    params={"from": from_date, "to": to_date},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    closes = data.get("c", [])
+                    timestamps = data.get("t", [])
+                    if closes and timestamps:
+                        prices = [
+                            {"date": t * 1000, "price": round(c, 2)}
+                            for t, c in zip(timestamps, closes)
+                        ]
+                        return {"prices": prices, "ticker": ticker.upper()}
+        except Exception:
+            pass
 
+    # Fallback to Polygon
+    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker.upper()}/range/1/day/{from_date}/{to_date}"
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(url, params={
             "adjusted": "true",

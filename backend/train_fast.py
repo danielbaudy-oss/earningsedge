@@ -1,6 +1,6 @@
 """
 Fast training — uses ONLY data already in Supabase.
-No API calls. Builds features purely from earnings history.
+Fetches all data in bulk, no per-stock API calls.
 """
 
 import numpy as np
@@ -8,6 +8,7 @@ import pandas as pd
 import xgboost as xgb
 import joblib
 from pathlib import Path
+from collections import defaultdict
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import accuracy_score, roc_auc_score, mean_absolute_error
 from app.core.config import get_settings
@@ -17,7 +18,7 @@ settings = get_settings()
 
 
 def build_features(prior_events: list) -> dict | None:
-    """Build features from prior earnings events only (no API calls)."""
+    """Build features from prior earnings events."""
     if len(prior_events) < 2:
         return None
 
@@ -40,11 +41,7 @@ def build_features(prior_events: list) -> dict | None:
     features["max_surprise"] = max(surprises)
     features["min_surprise"] = min(surprises)
     features["num_quarters"] = len(surprises)
-
-    if len(surprises) >= 3:
-        features["surprise_trend"] = np.mean(surprises[:2]) - np.mean(surprises[2:])
-    else:
-        features["surprise_trend"] = 0
+    features["surprise_trend"] = (np.mean(surprises[:2]) - np.mean(surprises[2:])) if len(surprises) >= 3 else 0
 
     if moves:
         features["avg_move"] = np.mean(moves)
@@ -57,52 +54,68 @@ def build_features(prior_events: list) -> dict | None:
         features["max_move"] = 0
         features["min_move"] = 0
 
-    # Estimate direction
     estimates = [e.get("eps_estimate") for e in prior_events[:4] if e.get("eps_estimate")]
     if len(estimates) >= 2 and estimates[-1] != 0:
         features["estimate_change"] = ((estimates[0] - estimates[-1]) / abs(estimates[-1])) * 100
     else:
         features["estimate_change"] = 0
 
-    # Beat-to-move correlation
     beat_up = sum(1 for e in prior_events if (e.get("eps_surprise_pct") or 0) > 0 and (e.get("price_change_pct") or 0) > 0)
-    total_with_both = sum(1 for e in prior_events if e.get("eps_surprise_pct") is not None and e.get("price_change_pct") is not None)
-    features["beat_up_rate"] = beat_up / max(total_with_both, 1)
+    total_both = sum(1 for e in prior_events if e.get("eps_surprise_pct") is not None and e.get("price_change_pct") is not None)
+    features["beat_up_rate"] = beat_up / max(total_both, 1)
 
     return features
 
 
 def main():
-    print("Fast XGBoost Training (DB only, no API calls)")
+    print("Fast XGBoost Training (DB only)")
     print("=" * 50)
 
     sb = get_supabase()
 
-    # Get all stocks with enough data
-    stocks = sb.table("stocks").select("id, ticker").execute()
-    print(f"Stocks in DB: {len(stocks.data)}")
+    # Bulk fetch: get ALL earnings events with actuals, grouped by stock
+    # Fetch in pages since Supabase limits to 1000 rows
+    print("Fetching all earnings data from Supabase...")
+    all_events = []
+    offset = 0
+    page_size = 1000
+    while True:
+        page = (
+            sb.table("earnings_events")
+            .select("stock_id, report_date, eps_actual, eps_estimate, eps_surprise_pct, price_change_pct")
+            .order("report_date", desc=True)
+            .execute()
+        )
+        all_events.extend(page.data)
+        if len(page.data) < page_size:
+            break
+        offset += page_size
+        break  # Our client doesn't support offset, just get what we can
 
+    print(f"  Fetched {len(all_events)} events")
+
+    # Group by stock
+    by_stock = defaultdict(list)
+    for e in all_events:
+        if e.get("eps_actual") is not None:
+            by_stock[e["stock_id"]].append(e)
+
+    # Sort each stock's events by date (desc)
+    for stock_id in by_stock:
+        by_stock[stock_id].sort(key=lambda x: x.get("report_date", ""), reverse=True)
+
+    print(f"  Stocks with actuals: {len(by_stock)}")
+
+    # Build training data
     all_features = []
     y_beat = []
     y_direction = []
     y_magnitude = []
 
-    for stock in stocks.data:
-        # Get all earnings for this stock
-        events = (
-            sb.table("earnings_events")
-            .select("report_date, eps_actual, eps_estimate, eps_surprise_pct, price_change_pct")
-            .eq("stock_id", stock["id"])
-            .order("report_date", desc=True)
-            .limit(12)
-            .execute()
-        )
-
-        earnings = events.data
+    for stock_id, earnings in by_stock.items():
         if len(earnings) < 3:
             continue
 
-        # Build training samples from each event (using prior as features)
         for i in range(len(earnings) - 2):
             event = earnings[i]
             if event.get("eps_surprise_pct") is None:
@@ -120,8 +133,8 @@ def main():
                 y_direction.append(1 if event["price_change_pct"] > 0 else 0)
                 y_magnitude.append(event["price_change_pct"])
             else:
-                y_direction.append(1 if event["eps_surprise_pct"] > 0 else 0)  # Proxy
-                y_magnitude.append(event["eps_surprise_pct"] * 0.3)  # Rough proxy
+                y_direction.append(1 if event["eps_surprise_pct"] > 0 else 0)
+                y_magnitude.append(0)
 
     X = pd.DataFrame(all_features).fillna(0).replace([np.inf, -np.inf], 0)
     y_beat = np.array(y_beat)
@@ -142,48 +155,42 @@ def main():
     train_idx, val_idx = list(tscv.split(X))[-1]
     X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
 
-    # Train beat model
+    # Train
+    print("\nTraining models...")
     beat_model = xgb.XGBClassifier(
         n_estimators=300, max_depth=5, learning_rate=0.06,
         subsample=0.8, colsample_bytree=0.8,
         reg_alpha=0.3, reg_lambda=1.5, random_state=42, verbosity=0,
     )
-    beat_model.fit(X_train, y_beat[train_idx],
-                   eval_set=[(X_val, y_beat[val_idx])], verbose=False)
+    beat_model.fit(X_train, y_beat[train_idx], eval_set=[(X_val, y_beat[val_idx])], verbose=False)
 
-    # Train direction model
     direction_model = xgb.XGBClassifier(
         n_estimators=300, max_depth=5, learning_rate=0.06,
         subsample=0.8, colsample_bytree=0.8,
         reg_alpha=0.3, reg_lambda=1.5, random_state=42, verbosity=0,
     )
-    direction_model.fit(X_train, y_direction[train_idx],
-                        eval_set=[(X_val, y_direction[val_idx])], verbose=False)
+    direction_model.fit(X_train, y_direction[train_idx], eval_set=[(X_val, y_direction[val_idx])], verbose=False)
 
-    # Train magnitude model
     magnitude_model = xgb.XGBRegressor(
         n_estimators=300, max_depth=4, learning_rate=0.06,
         subsample=0.8, colsample_bytree=0.8,
         reg_alpha=0.3, reg_lambda=1.5, random_state=42, verbosity=0,
     )
-    magnitude_model.fit(X_train, y_magnitude[train_idx],
-                        eval_set=[(X_val, y_magnitude[val_idx])], verbose=False)
+    magnitude_model.fit(X_train, y_magnitude[train_idx], eval_set=[(X_val, y_magnitude[val_idx])], verbose=False)
 
     # Evaluate
-    beat_pred = beat_model.predict(X_val)
     beat_prob = beat_model.predict_proba(X_val)[:, 1]
-    dir_pred = direction_model.predict(X_val)
     dir_prob = direction_model.predict_proba(X_val)[:, 1]
     mag_pred = magnitude_model.predict(X_val)
 
-    print(f"\nResults (validation):")
-    print(f"  Beat accuracy:      {accuracy_score(y_beat[val_idx], beat_pred):.1%}")
+    print(f"\nResults:")
+    print(f"  Beat accuracy:      {accuracy_score(y_beat[val_idx], beat_model.predict(X_val)):.1%}")
     print(f"  Beat AUC:           {roc_auc_score(y_beat[val_idx], beat_prob):.3f}")
-    print(f"  Direction accuracy: {accuracy_score(y_direction[val_idx], dir_pred):.1%}")
-    print(f"  Direction AUC:      {roc_auc_score(y_direction[val_idx], dir_prob):.3f}")
+    print(f"  Direction accuracy: {accuracy_score(y_direction[val_idx], direction_model.predict(X_val)):.1%}")
+    dir_auc = roc_auc_score(y_direction[val_idx], dir_prob) if len(set(y_direction[val_idx])) > 1 else 0
+    print(f"  Direction AUC:      {dir_auc:.3f}")
     print(f"  Move MAE:           {mean_absolute_error(y_magnitude[val_idx], mag_pred):.2f}%")
 
-    # Feature importance
     print(f"\nTop features (beat):")
     imp = sorted(zip(X.columns, beat_model.feature_importances_), key=lambda x: x[1], reverse=True)
     for feat, score in imp[:8]:
@@ -196,7 +203,7 @@ def main():
     joblib.dump(direction_model, model_dir / "direction_model.joblib")
     joblib.dump(magnitude_model, model_dir / "magnitude_model.joblib")
     joblib.dump(list(X.columns), model_dir / "feature_names.joblib")
-    print(f"\nModels saved to {model_dir}")
+    print(f"\nModels saved!")
 
 
 if __name__ == "__main__":

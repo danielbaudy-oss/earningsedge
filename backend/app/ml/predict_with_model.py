@@ -375,14 +375,14 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     # If likely to miss earnings, stock is unlikely to go up (regardless of momentum)
     # If likely to beat, that supports upward direction
     if beat_prob < 0.35 and direction_prob > 0.6:
-        # Contradiction: likely miss but model says up — penalize heavily
-        direction_prob = direction_prob * 0.5 + 0.25  # Pull toward 50%
+        # Strong contradiction: likely miss but model says up — cap direction
+        direction_prob = min(direction_prob, 0.35 + beat_prob * 0.5)
     elif beat_prob < 0.45 and direction_prob > 0.7:
         # Mild contradiction
-        direction_prob = direction_prob * 0.7 + 0.15
+        direction_prob = min(direction_prob, 0.45 + beat_prob * 0.4)
     elif beat_prob > 0.75 and direction_prob < 0.4:
         # Likely beat but model says down — slight boost
-        direction_prob = direction_prob * 0.7 + 0.2
+        direction_prob = max(direction_prob, 0.3 + beat_prob * 0.2)
 
     # Adjust expected move: use stock-specific volatility, not a flat default
     prior_moves = [e.get("price_change_pct", 0) for e in earnings if e.get("price_change_pct") is not None]

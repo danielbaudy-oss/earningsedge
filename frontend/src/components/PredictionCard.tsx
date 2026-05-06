@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getPrediction, analyzeTicker } from "@/lib/api";
 import { formatPercent, getRecommendationColor } from "@/lib/utils";
@@ -8,6 +9,27 @@ import { TrendingUp, TrendingDown, AlertTriangle, Info, Shield, Target, Zap } fr
 
 interface PredictionCardProps {
   ticker: string;
+}
+
+function DescriptionToggle({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 120;
+
+  return (
+    <div className="mt-3">
+      <p className={`text-xs text-gray-500 ${!expanded && isLong ? "line-clamp-2" : ""}`}>
+        {text}
+      </p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-0.5 text-xs font-medium text-green-600 hover:text-green-800"
+        >
+          {expanded ? "← Show less" : "Read more →"}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function PredictionCard({ ticker }: PredictionCardProps) {
@@ -113,7 +135,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
 
       {/* Company Description */}
       {prediction.description && (
-        <p className="mt-3 text-xs text-gray-500 line-clamp-2">{prediction.description}</p>
+        <DescriptionToggle text={prediction.description} />
       )}
 
       {/* Main Metrics */}

@@ -161,6 +161,13 @@ def build_explanation(features: dict, beat_prob: float, direction_prob: float,
     elif est_change > 15:
         reasons.append("Estimates revised up — high expectations priced in")
 
+    # Short interest context
+    short_pct = features.get("short_interest_pct", 0)
+    if short_pct > 15:
+        reasons.append(f"High short interest ({short_pct:.0f}%) — squeeze potential on beat")
+    elif short_pct > 8:
+        reasons.append(f"Elevated short interest ({short_pct:.0f}%) — amplified move likely")
+
     # Build explanation text
     top_3 = reasons[:3]
     explanation = f"{ticker} earnings analysis:\n" + "\n".join(f"- {r}" for r in top_3)
@@ -243,6 +250,22 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     features["operating_margin"] = metrics.get("operatingMarginTTM", 0) or 0
     features["pe_ratio"] = metrics.get("peTTM", 0) or 0
     features["beta"] = metrics.get("beta", 1) or 1
+
+    # Short interest — high short interest + beat = potential squeeze
+    short_interest = 0
+    try:
+        si_data = await fetch_finnhub(client, "stock/short-interest", {"symbol": ticker, "from": "2026-01-01", "to": date.today().isoformat()})
+        if si_data and isinstance(si_data, list) and si_data:
+            # Get most recent short interest as % of float
+            latest_si = si_data[-1] if si_data else {}
+            shares_short = latest_si.get("shortInterest", 0)
+            # Finnhub gives absolute shares short, we need % — estimate from market cap
+            shares_outstanding = metrics.get("shareOutstanding", 0) or 0
+            if shares_outstanding > 0 and shares_short > 0:
+                short_interest = (shares_short / (shares_outstanding * 1_000_000)) * 100
+    except Exception:
+        pass
+    features["short_interest_pct"] = min(short_interest, 50)  # Cap at 50%
 
     # Price momentum / trend from Finnhub
     momentum_13w = metrics.get("13WeekPriceReturnDaily", 0) or 0
@@ -400,6 +423,16 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
         magnitude_multiplier *= 1.15
     elif beta < 0.7:
         magnitude_multiplier *= 0.85
+
+    # Apply short interest scaling — high short interest amplifies moves
+    short_pct = features.get("short_interest_pct", 0)
+    if short_pct > 20:
+        # Very high short interest — potential squeeze on beat, crash on miss
+        magnitude_multiplier *= 1.3
+    elif short_pct > 10:
+        magnitude_multiplier *= 1.15
+    elif short_pct > 5:
+        magnitude_multiplier *= 1.05
 
     avg_abs_move *= magnitude_multiplier
 

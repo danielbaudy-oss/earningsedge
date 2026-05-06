@@ -138,3 +138,83 @@ async def fetch_all_price_reactions():
 
 if __name__ == "__main__":
     asyncio.run(fetch_all_price_reactions())
+
+
+async def fetch_recent_reactions(days_back: int = 7) -> int:
+    """
+    Fetch price reactions for earnings that happened in the last N days.
+    Called daily to keep the feedback loop fed with actual outcomes.
+    Only fetches for events missing price_change_pct.
+    """
+    sb = get_supabase()
+    client = httpx.AsyncClient(timeout=30.0)
+
+    today = date.today()
+    cutoff = (today - timedelta(days=days_back)).isoformat()
+
+    # Get recent earnings without price data
+    # Use a direct query approach since our REST client has filter limitations
+    import httpx as hx
+    headers = {
+        "apikey": settings.supabase_service_key,
+        "Authorization": f"Bearer {settings.supabase_service_key}",
+    }
+    url = f"{settings.supabase_url}/rest/v1/earnings_events"
+    params = {
+        "select": "id,stock_id,report_date,price_change_pct,stocks(ticker)",
+        "report_date": f"gte.{cutoff}",
+        "price_change_pct": "is.null",
+        "eps_actual": "not.is.null",
+        "order": "report_date.desc",
+        "limit": "20",
+    }
+
+    async with hx.AsyncClient(timeout=15.0) as req_client:
+        resp = await req_client.get(url, params=params, headers=headers)
+
+    if resp.status_code != 200:
+        return 0
+
+    events = resp.json()
+    if not events:
+        return 0
+
+    print(f"  Found {len(events)} recent earnings needing price data")
+
+    fetched = 0
+    for event in events:
+        stock = event.get("stocks") or {}
+        ticker = stock.get("ticker", "")
+        if not ticker:
+            continue
+
+        report_date = event["report_date"]
+
+        # Get price before
+        price_before = await get_close_price(client, ticker, report_date)
+        await asyncio.sleep(13)  # Polygon rate limit
+
+        # Get price after
+        price_after = await get_price_after(client, ticker, report_date)
+        await asyncio.sleep(13)
+
+        if price_before and price_after:
+            change_pct = ((price_after - price_before) / price_before) * 100
+            update_data = {
+                "price_before": price_before,
+                "price_after": price_after,
+                "price_change_pct": round(change_pct, 2),
+            }
+            try:
+                patch_url = f"{settings.supabase_url}/rest/v1/earnings_events?id=eq.{event['id']}"
+                async with hx.AsyncClient() as patch_client:
+                    await patch_client.patch(patch_url, json=update_data, headers={
+                        **headers, "Content-Type": "application/json", "Prefer": "return=representation"
+                    })
+                fetched += 1
+                print(f"    {ticker} ({report_date}): {change_pct:+.2f}%")
+            except Exception:
+                pass
+
+    await client.aclose()
+    return fetched

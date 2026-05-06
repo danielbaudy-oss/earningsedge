@@ -31,6 +31,15 @@ async def run_daily_job():
     except Exception as e:
         print(f"  ⚠️ Calendar sync failed: {e}")
 
+    # Step 1b: Fetch price reactions for recent earnings (feeds the model)
+    print("\n📈 Step 1b: Fetching post-earnings price reactions...")
+    try:
+        from app.ingestion.fetch_price_reactions import fetch_recent_reactions
+        fetched = await fetch_recent_reactions()
+        print(f"  Fetched {fetched} price reactions")
+    except Exception as e:
+        print(f"  ⚠️ Price reaction fetch failed: {e}")
+
     # Step 2: Update outcomes (feedback loop)
     print("\n🔄 Step 2: Updating prediction outcomes...")
     try:

@@ -293,18 +293,18 @@ async def analyze_stock(ticker: str, mode: Optional[str] = Query("trader")):
 
     event = event_result.data[0]
 
-    # Check if we have historical earnings — if not, fetch them from Finnhub
-    history_result = (
+    # Check if we have enough historical earnings — if not, fetch from Finnhub
+    history_count = (
         sb.table("earnings_events")
         .select("id")
         .eq("stock_id", stock["id"])
         .lte("report_date", d.today().isoformat())
-        .limit(1)
+        .limit(3)
         .execute()
     )
 
-    if not history_result.data:
-        # Fetch historical earnings from Finnhub on-demand
+    if len(history_count.data) < 3:
+        # Fetch historical earnings from Finnhub
         async with httpx.AsyncClient(timeout=30.0) as client:
             params = {"symbol": ticker.upper(), "limit": 8, "token": settings_local.finnhub_api_key}
             resp = await client.get("https://finnhub.io/api/v1/stock/earnings", params=params)

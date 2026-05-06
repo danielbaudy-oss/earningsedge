@@ -234,18 +234,37 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
                 "sector": profile.get("finnhubIndustry", ""),
             }
 
-            # Only fetch description from Polygon if we don't have one yet
+            # Only fetch description if we don't have one yet
             if not has_description:
-                import asyncio as _asyncio
-                await _asyncio.sleep(13)  # Wait for Polygon rate limit
-                poly_resp = await client.get(
-                    f"https://api.polygon.io/v3/reference/tickers/{ticker}",
-                    params={"apiKey": settings.polygon_api_key},
-                )
-                if poly_resp.status_code == 200:
-                    poly_data = poly_resp.json().get("results", {})
-                    if poly_data.get("description"):
-                        update_data["description"] = poly_data["description"][:500]
+                # Try Wikipedia first (free, no rate limit, good coverage)
+                try:
+                    wiki_resp = await client.get(
+                        f"https://en.wikipedia.org/api/rest_v1/page/summary/{company_name.replace(' ', '_')}",
+                        headers={"User-Agent": "EarningsEdge/1.0 (danielbaudy@gmail.com)"},
+                    )
+                    if wiki_resp.status_code == 200:
+                        wiki_data = wiki_resp.json()
+                        extract = wiki_data.get("extract", "")
+                        if extract and len(extract) > 50 and ticker.lower() not in extract.lower().split("may refer to"):
+                            update_data["description"] = extract[:500]
+                except Exception:
+                    pass
+
+                # Fallback to Polygon if Wikipedia didn't work
+                if "description" not in update_data:
+                    try:
+                        import asyncio as _asyncio
+                        await _asyncio.sleep(13)
+                        poly_resp = await client.get(
+                            f"https://api.polygon.io/v3/reference/tickers/{ticker}",
+                            params={"apiKey": settings.polygon_api_key},
+                        )
+                        if poly_resp.status_code == 200:
+                            poly_data = poly_resp.json().get("results", {})
+                            if poly_data.get("description"):
+                                update_data["description"] = poly_data["description"][:500]
+                    except Exception:
+                        pass
 
             async with hx.AsyncClient() as patch_client:
                 await patch_client.patch(url, json=update_data, headers=headers)

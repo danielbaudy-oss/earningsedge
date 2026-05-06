@@ -4,8 +4,8 @@ on:
   schedule:
     # Run at 6:00 AM UTC every day (before US market open)
     - cron: '0 6 * * *'
-    # Keep Render awake every 10 minutes during market hours (13:00-21:00 UTC)
-    - cron: '*/10 13-21 * * 1-5'
+    # Keep Render awake every 10 minutes 24/7
+    - cron: '*/10 * * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
 
   keep-alive:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '*/10 13-21 * * 1-5'
+    if: github.event.schedule == '*/10 * * * *'
     steps:
       - name: Ping to prevent cold start
         run: curl -s https://earningsedge-pnc9.onrender.com/api/health || true

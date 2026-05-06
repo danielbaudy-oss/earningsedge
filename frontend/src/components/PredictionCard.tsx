@@ -88,7 +88,14 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
           <h3 className="text-lg font-bold text-gray-900">{prediction.ticker}</h3>
           <p className="text-sm text-gray-500">{prediction.company_name}</p>
           {prediction.earnings_date && (
-            <p className="mt-1 text-xs text-gray-400">Reports: {prediction.earnings_date}</p>
+            <p className="mt-1 text-xs text-gray-400">
+              Reports: {prediction.earnings_date}
+              {prediction.exchange && (
+                <span className="ml-2">
+                  {prediction.exchange === "XNAS" ? "Nasdaq" : prediction.exchange === "XNYS" ? "NYSE" : prediction.exchange}
+                </span>
+              )}
+            </p>
           )}
         </div>
         <div className="text-right">

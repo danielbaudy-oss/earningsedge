@@ -5,6 +5,8 @@ The expected move is calculated from the ATM straddle:
 Expected Move = (ATM Call Mid + ATM Put Mid) / Current Price * 100
 
 This tells us what the options market is pricing in for the next expiration.
+
+Free plan: 100 requests/day (24h delayed data). We cache results to avoid waste.
 """
 
 import httpx
@@ -14,16 +16,24 @@ from app.core.config import get_settings
 settings = get_settings()
 BASE_URL = "https://api.marketdata.app/v1"
 
+# Simple in-memory cache: {ticker: {"data": ..., "date": "2026-05-06"}}
+_iv_cache: dict = {}
+
 
 def get_expected_move(ticker: str, earnings_date: str = None) -> dict:
     """
     Get the market's implied expected move for a stock using options data.
-
-    Returns:
-        - expected_move_pct: market-implied % move (from straddle)
-        - atm_iv: at-the-money implied volatility (annualized)
-        - current_price: current stock price
+    Results are cached for the day to stay within the 100 req/day free limit.
     """
+    # Check cache first
+    today = date.today().isoformat()
+    if ticker in _iv_cache and _iv_cache[ticker].get("date") == today:
+        return _iv_cache[ticker]["data"]
+
+    # Skip if no API key configured
+    if not settings.marketdata_api_key:
+        return {"available": False, "error": "No API key"}
+
     try:
         headers = {"Authorization": f"Token {settings.marketdata_api_key}"}
 
@@ -95,15 +105,21 @@ def get_expected_move(ticker: str, earnings_date: str = None) -> dict:
             elif atm_put_iv:
                 atm_iv = atm_put_iv
 
-            return {
+            result = {
                 "available": True,
                 "expected_move_pct": round(expected_move_pct, 2),
                 "atm_iv": round(atm_iv * 100, 1),  # As percentage
                 "current_price": round(current_price, 2),
                 "straddle_price": round(straddle, 2),
             }
+            _iv_cache[ticker] = {"data": result, "date": today}
+            return result
 
-        return {"available": False, "error": "Could not find ATM options"}
+        result = {"available": False, "error": "Could not find ATM options"}
+        _iv_cache[ticker] = {"data": result, "date": today}
+        return result
 
     except Exception as e:
-        return {"available": False, "error": str(e)}
+        result = {"available": False, "error": str(e)}
+        # Don't cache errors — might be transient
+        return result

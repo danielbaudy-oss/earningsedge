@@ -216,6 +216,10 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     profile = await fetch_finnhub(client, "stock/profile2", {"symbol": ticker})
     if profile and isinstance(profile, dict) and profile.get("name"):
         company_name = profile["name"]
+        # Check if we already have description stored
+        existing_stock = sb.table("stocks").select("description").eq("id", stock_id).execute()
+        has_description = existing_stock.data and existing_stock.data[0].get("description")
+
         # Update stock record with real name
         try:
             import httpx as hx
@@ -230,15 +234,18 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
                 "sector": profile.get("finnhubIndustry", ""),
             }
 
-            # Also try to get description from Polygon
-            poly_resp = await client.get(
-                f"{POLYGON_BASE}/v3/reference/tickers/{ticker}",
-                params={"apiKey": settings.polygon_api_key},
-            )
-            if poly_resp.status_code == 200:
-                poly_data = poly_resp.json().get("results", {})
-                if poly_data.get("description"):
-                    update_data["description"] = poly_data["description"][:500]
+            # Only fetch description from Polygon if we don't have one yet
+            if not has_description:
+                import asyncio as _asyncio
+                await _asyncio.sleep(13)  # Wait for Polygon rate limit
+                poly_resp = await client.get(
+                    f"https://api.polygon.io/v3/reference/tickers/{ticker}",
+                    params={"apiKey": settings.polygon_api_key},
+                )
+                if poly_resp.status_code == 200:
+                    poly_data = poly_resp.json().get("results", {})
+                    if poly_data.get("description"):
+                        update_data["description"] = poly_data["description"][:500]
 
             async with hx.AsyncClient() as patch_client:
                 await patch_client.patch(url, json=update_data, headers=headers)

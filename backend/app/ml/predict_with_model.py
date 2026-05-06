@@ -343,6 +343,25 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     # Cap at reasonable bounds
     avg_abs_move = max(0.5, min(avg_abs_move, 20.0))
 
+    # --- TRY TO GET MARKET-IMPLIED EXPECTED MOVE FROM OPTIONS ---
+    # This is the gold standard — what the options market actually prices in
+    market_implied_move = None
+    try:
+        from app.ingestion.options_iv import get_expected_move
+        # Find earnings date for this event
+        event_data = sb.table("earnings_events").select("report_date").eq("id", event_id).execute()
+        earnings_date_str = event_data.data[0]["report_date"] if event_data.data else None
+        iv_data = get_expected_move(ticker, earnings_date_str)
+        if iv_data.get("available") and iv_data.get("expected_move_pct"):
+            market_implied_move = iv_data["expected_move_pct"]
+    except Exception:
+        pass
+
+    # If we have market-implied move, blend it with our estimate
+    if market_implied_move and market_implied_move > 0:
+        # Use market-implied as the magnitude, our model for direction
+        avg_abs_move = market_implied_move * 0.7 + avg_abs_move * 0.3  # 70% market, 30% our estimate
+
     # --- MAGNITUDE ADJUSTMENT BASED ON CURRENT BEHAVIOR ---
     # Stocks that have sold off hard may snap back bigger on a beat
     # Stocks that have run up may have muted upside (already priced in)

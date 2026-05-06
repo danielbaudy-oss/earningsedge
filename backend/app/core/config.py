@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = ""
 
+    # Market Data (options IV)
+    marketdata_api_key: str = ""
+
     # ML
     model_path: str = "./models"
     retrain_hour: int = 2

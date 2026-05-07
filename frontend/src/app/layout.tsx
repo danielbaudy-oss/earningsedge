@@ -7,7 +7,7 @@ import { AppShell } from "@/components/AppShell";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "preQ - AI Earnings Predictions",
+  title: "EarningsEdge - AI Earnings Predictions",
   description:
     "AI predicts which stocks move up after reporting. Earnings predictions powered by options data, ML, and market signals.",
 };

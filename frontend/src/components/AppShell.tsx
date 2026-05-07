@@ -23,7 +23,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       <nav className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
           <a href="/" className="text-xl font-bold text-gray-900">
-            pre<span className="text-green-600">Q</span>
+            Earnings<span className="text-green-600">Edge</span>
           </a>
 
           {/* Desktop nav */}

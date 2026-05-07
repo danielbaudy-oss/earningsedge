@@ -5,31 +5,21 @@ import { StockSearch } from "@/components/StockSearch";
 import { PredictionCard } from "@/components/PredictionCard";
 import { TopPredictions } from "@/components/TopPredictions";
 import { Watchlist } from "@/components/Watchlist";
-import { ModeToggle } from "@/components/ModeToggle";
-import { useMode } from "@/lib/mode-context";
 import { X } from "lucide-react";
 
 export default function Dashboard() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
-  const { mode } = useMode();
 
   return (
     <div className="space-y-8">
       {/* Hero / Search */}
       <section className="text-center">
         <h1 className="text-3xl font-bold text-gray-900">
-          {mode === "trader"
-            ? "What's the play before earnings?"
-            : "Should you hold through earnings?"}
+          What's the play before earnings?
         </h1>
         <p className="mt-2 text-gray-600">
-          {mode === "trader"
-            ? "Short-term signals — buy before, sell after"
-            : "Long-term view — quality compounders to hold"}
+          Short-term signals — buy before, sell after
         </p>
-        <div className="mx-auto mt-4 flex items-center justify-center gap-4">
-          <ModeToggle />
-        </div>
         <div className="mx-auto mt-6 max-w-md">
           <StockSearch onSelect={setSelectedTicker} />
         </div>
@@ -53,7 +43,7 @@ export default function Dashboard() {
       <div className="grid gap-8 lg:grid-cols-2">
         <section>
           <h2 className="mb-4 text-lg font-semibold text-gray-900">
-            {mode === "trader" ? "Top Trades Next 7 Days" : "Best Opportunities Next 7 Days"}
+            Top Trades Next 7 Days
           </h2>
           <TopPredictions />
         </section>

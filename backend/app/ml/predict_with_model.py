@@ -494,8 +494,23 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
 
     # If we have market-implied move, blend it with our estimate
     if market_implied_move and market_implied_move > 0:
-        # Use market-implied as the magnitude, our model for direction
-        avg_abs_move = market_implied_move * 0.7 + avg_abs_move * 0.3  # 70% market, 30% our estimate
+        # Reality check: if options-implied move is much larger than historical,
+        # the options might be illiquid (wide spreads inflate the straddle)
+        # Blend more toward historical when there's a big discrepancy
+        if prior_moves and len(prior_moves) >= 2:
+            historical_avg = float(np.mean([abs(m) for m in prior_moves]))
+            if market_implied_move > historical_avg * 3:
+                # Options likely illiquid — trust historical more
+                avg_abs_move = historical_avg * 0.6 + market_implied_move * 0.4
+            elif market_implied_move > historical_avg * 2:
+                # Moderate discrepancy — balanced blend
+                avg_abs_move = historical_avg * 0.4 + market_implied_move * 0.6
+            else:
+                # Reasonable agreement — trust options more
+                avg_abs_move = market_implied_move * 0.7 + avg_abs_move * 0.3
+        else:
+            # No historical data — use options but dampen slightly
+            avg_abs_move = market_implied_move * 0.75
 
     # --- MAGNITUDE ADJUSTMENT BASED ON CURRENT BEHAVIOR ---
     # Stocks that have sold off hard may snap back bigger on a beat

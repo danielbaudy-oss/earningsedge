@@ -161,6 +161,20 @@ def build_explanation(features: dict, beat_prob: float, direction_prob: float,
     elif est_change > 15:
         reasons.append("Estimates revised up — high expectations priced in")
 
+    # Analyst revision signal
+    rev_signal = features.get("analyst_revision_signal", 0)
+    if rev_signal >= 3:
+        reasons.append("Multiple analyst upgrades recently — strong conviction")
+    elif rev_signal <= -3:
+        reasons.append("Multiple analyst downgrades recently — weakening outlook")
+
+    # Insider activity
+    insider = features.get("insider_signal", 0)
+    if insider > 0.5:
+        reasons.append("Insiders buying shares — management confidence")
+    elif insider < -0.5:
+        reasons.append("Insiders selling shares — potential caution signal")
+
     # Short interest context
     short_pct = features.get("short_interest_pct", 0)
     if short_pct > 15:
@@ -292,6 +306,65 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     except Exception:
         pass
     features["short_interest_pct"] = min(short_interest, 50)  # Cap at 50%
+
+    # --- HIGH IMPACT INDICATOR 1: Analyst Estimate Revisions ---
+    # If analysts raised estimates recently, company likely beats
+    revision_signal = 0
+    try:
+        rec_data = await fetch_finnhub(client, "stock/recommendation", {"symbol": ticker})
+        if rec_data and isinstance(rec_data, list) and len(rec_data) >= 2:
+            current = rec_data[0]
+            previous = rec_data[1]
+            # Count upgrades vs downgrades
+            curr_buy = current.get("buy", 0) + current.get("strongBuy", 0)
+            prev_buy = previous.get("buy", 0) + previous.get("strongBuy", 0)
+            curr_sell = current.get("sell", 0) + current.get("strongSell", 0)
+            prev_sell = previous.get("sell", 0) + previous.get("strongSell", 0)
+            # Net revision direction
+            revision_signal = (curr_buy - prev_buy) - (curr_sell - prev_sell)
+    except Exception:
+        pass
+    features["analyst_revision_signal"] = revision_signal
+
+    # --- HIGH IMPACT INDICATOR 2: Revenue Surprise History ---
+    # Companies that beat on revenue AND EPS have stronger reactions
+    revenue_beat_rate = 0.5
+    try:
+        # Check if earnings events have revenue data
+        rev_events = [e for e in earnings if e.get("revenue_actual") and e.get("revenue_estimate")]
+        if rev_events:
+            rev_beats = sum(1 for e in rev_events if e["revenue_actual"] > e["revenue_estimate"])
+            revenue_beat_rate = rev_beats / len(rev_events)
+    except Exception:
+        pass
+    features["revenue_beat_rate"] = revenue_beat_rate
+
+    # --- HIGH IMPACT INDICATOR 3: Insider Transactions ---
+    # Net insider buying before earnings = bullish signal
+    insider_signal = 0
+    try:
+        insider_data = await fetch_finnhub(client, "stock/insider-transactions", {"symbol": ticker})
+        if insider_data and isinstance(insider_data, dict):
+            transactions = insider_data.get("data", [])
+            # Look at last 90 days of insider activity
+            recent_buys = 0
+            recent_sells = 0
+            for txn in transactions[:20]:  # Last 20 transactions
+                change = txn.get("change", 0)
+                if change > 0:
+                    recent_buys += 1
+                elif change < 0:
+                    recent_sells += 1
+            if recent_buys + recent_sells > 0:
+                insider_signal = (recent_buys - recent_sells) / (recent_buys + recent_sells)
+    except Exception:
+        pass
+    features["insider_signal"] = insider_signal  # -1 (all selling) to +1 (all buying)
+
+    # --- HIGH IMPACT INDICATOR 4: Sector Peer Performance ---
+    # If peers in same sector already beat, this stock likely will too
+    # Use the stock's sector return relative to S&P 500 as proxy
+    features["sector_relative_perf"] = metrics.get("priceRelativeToS&P50013Week", 0) or 0
 
     # Price momentum / trend from Finnhub
     momentum_13w = metrics.get("13WeekPriceReturnDaily", 0) or 0
@@ -490,15 +563,30 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     risk_score = calculate_risk_score(beat_prob, direction_prob, expected_move, volatility, beta)
 
     # Total score (0-100)
-    # Weighted: beat_prob (30%) + direction_prob (30%) + fundamentals (20%) + low_risk (20%)
+    # Weighted: beat_prob (25%) + direction_prob (25%) + fundamentals (15%) + low_risk (15%) + signals (20%)
     fundamentals_signal = min(max((features.get("revenue_growth", 0) + 10) / 40, 0), 1)
     risk_bonus = (100 - risk_score) / 100
 
+    # New signals bonus (analyst revisions + insider buying)
+    signals_bonus = 0.5  # Neutral baseline
+    rev_signal = features.get("analyst_revision_signal", 0)
+    insider = features.get("insider_signal", 0)
+    if rev_signal > 0:
+        signals_bonus += min(rev_signal * 0.05, 0.2)
+    elif rev_signal < 0:
+        signals_bonus -= min(abs(rev_signal) * 0.05, 0.2)
+    if insider > 0.3:
+        signals_bonus += 0.15
+    elif insider < -0.3:
+        signals_bonus -= 0.1
+    signals_bonus = max(0.1, min(0.9, signals_bonus))
+
     total_score = int(
-        beat_prob * 30 +
-        direction_prob * 30 +
-        fundamentals_signal * 20 +
-        risk_bonus * 20
+        beat_prob * 25 +
+        direction_prob * 25 +
+        fundamentals_signal * 15 +
+        risk_bonus * 15 +
+        signals_bonus * 20
     )
     total_score = max(5, min(95, total_score))
 

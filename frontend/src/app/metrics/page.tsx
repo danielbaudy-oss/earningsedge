@@ -1,12 +1,58 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
+import axios from "axios";
+
+const api = axios.create({ baseURL: process.env.NEXT_PUBLIC_API_URL || "/api", timeout: 30000 });
+
 export default function MetricsPage() {
+  const { data: accuracy } = useQuery({
+    queryKey: ["modelAccuracy"],
+    queryFn: async () => {
+      const { data } = await api.get("/model/accuracy");
+      return data;
+    },
+  });
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Understanding the Metrics</h1>
-      <p className="text-gray-600">
-        Here's what each metric means and how to use them for your investment decisions.
-      </p>
+      <h1 className="text-2xl font-bold text-gray-900">Model Performance</h1>
+
+      {/* Live accuracy stats */}
+      {accuracy && accuracy.predictions_with_outcomes > 0 ? (
+        <div className="card">
+          <h3 className="font-semibold text-gray-900">Live Accuracy</h3>
+          <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500">Predictions tracked</p>
+              <p className="text-lg font-bold">{accuracy.predictions_with_outcomes}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Recommendation accuracy</p>
+              <p className="text-lg font-bold">{(accuracy.recommendation_accuracy * 100).toFixed(1)}%</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Beat prediction accuracy</p>
+              <p className="text-lg font-bold">{(accuracy.beat_prediction_accuracy * 100).toFixed(1)}%</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Direction accuracy</p>
+              <p className="text-lg font-bold">{(accuracy.direction_accuracy * 100).toFixed(1)}%</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Avg move error</p>
+              <p className="text-lg font-bold">{accuracy.avg_move_error_pct?.toFixed(2)}%</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="card text-center text-gray-500">
+          <p>No prediction outcomes yet — first results expected after May 8 earnings.</p>
+          <p className="mt-1 text-xs">The model tracks every prediction and compares to actual results.</p>
+        </div>
+      )}
+
+      <h2 className="text-lg font-bold text-gray-900 pt-4">Understanding the Metrics</h2>
 
       <div className="space-y-4">
         <div className="card">

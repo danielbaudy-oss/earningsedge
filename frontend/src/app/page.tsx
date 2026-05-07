@@ -16,10 +16,10 @@ export default function Dashboard() {
       {/* Hero / Search */}
       <section className="text-center">
         <h1 className="text-3xl font-bold text-gray-900">
-          What's the play before earnings?
+          Earnings are coming. Are you ready?
         </h1>
         <p className="mt-2 text-gray-600">
-          Short-term signals — buy before, sell after
+          AI predicts which stocks move up after reporting
         </p>
         <div className="mx-auto mt-6 max-w-md">
           <StockSearch onSelect={setSelectedTicker} />

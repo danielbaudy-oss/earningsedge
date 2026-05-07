@@ -19,7 +19,7 @@ export default function MetricsPage() {
       <h1 className="text-2xl font-bold text-gray-900">Model Performance</h1>
 
       {/* Live accuracy stats */}
-      {accuracy && accuracy.predictions_with_outcomes > 0 ? (
+      {accuracy && accuracy.predictions_with_outcomes >= 5 ? (
         <div className="card">
           <h3 className="font-semibold text-gray-900">Live Accuracy</h3>
           <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
@@ -47,8 +47,8 @@ export default function MetricsPage() {
         </div>
       ) : (
         <div className="card text-center text-gray-500">
-          <p>No prediction outcomes yet — first results expected after May 8 earnings.</p>
-          <p className="mt-1 text-xs">The model tracks every prediction and compares to actual results.</p>
+          <p>Tracking predictions — need at least 5 outcomes for meaningful accuracy stats.</p>
+          <p className="mt-1 text-xs">{accuracy?.predictions_with_outcomes || 0} of 5 outcomes collected so far.</p>
         </div>
       )}
 

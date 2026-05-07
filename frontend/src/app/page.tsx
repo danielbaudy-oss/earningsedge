@@ -9,6 +9,7 @@ import { X } from "lucide-react";
 
 export default function Dashboard() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const [view, setView] = useState<"7d" | "30d">("7d");
 
   return (
     <div className="space-y-8">
@@ -39,21 +40,60 @@ export default function Dashboard() {
         </section>
       )}
 
-      {/* Dashboard — Top Trades + Watchlist */}
-      <div className="grid gap-8 lg:grid-cols-2">
+      {/* Mobile toggle */}
+      <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 lg:hidden">
+        <button
+          onClick={() => setView("7d")}
+          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+            view === "7d" ? "bg-green-600 text-white" : "text-gray-500"
+          }`}
+        >
+          Next 7 Days
+        </button>
+        <button
+          onClick={() => setView("30d")}
+          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+            view === "30d" ? "bg-green-600 text-white" : "text-gray-500"
+          }`}
+        >
+          Next 30 Days
+        </button>
+      </div>
+
+      {/* Desktop: side by side */}
+      <div className="hidden lg:grid lg:grid-cols-2 lg:gap-8">
         <section>
           <h2 className="mb-4 text-lg font-semibold text-gray-900">
             Top Trades Next 7 Days
           </h2>
           <TopPredictions />
         </section>
-
         <section>
           <h2 className="mb-4 text-lg font-semibold text-gray-900">
             Top Picks Next 30 Days
           </h2>
           <Watchlist />
         </section>
+      </div>
+
+      {/* Mobile: toggled */}
+      <div className="lg:hidden">
+        {view === "7d" && (
+          <section>
+            <h2 className="mb-4 text-lg font-semibold text-gray-900">
+              Top Trades Next 7 Days
+            </h2>
+            <TopPredictions />
+          </section>
+        )}
+        {view === "30d" && (
+          <section>
+            <h2 className="mb-4 text-lg font-semibold text-gray-900">
+              Top Picks Next 30 Days
+            </h2>
+            <Watchlist />
+          </section>
+        )}
       </div>
     </div>
   );

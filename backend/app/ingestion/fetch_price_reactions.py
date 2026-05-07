@@ -257,32 +257,37 @@ async def backfill_price_reactions(max_fetches: int = 10) -> int:
 
     fetched = 0
     for event in events:
-        stock = event.get("stocks") or {}
-        ticker = stock.get("ticker", "")
-        if not ticker:
+        try:
+            stock = event.get("stocks") or {}
+            ticker = stock.get("ticker", "")
+            if not ticker:
+                continue
+
+            report_date = event["report_date"]
+
+            price_before = await get_close_price(client, ticker, report_date)
+            await asyncio.sleep(13)
+
+            price_after = await get_price_after(client, ticker, report_date)
+            await asyncio.sleep(13)
+
+            if price_before and price_after:
+                change_pct = ((price_after - price_before) / price_before) * 100
+                try:
+                    patch_url = f"{settings.supabase_url}/rest/v1/earnings_events?id=eq.{event['id']}"
+                    async with hx.AsyncClient() as patch_client:
+                        await patch_client.patch(patch_url, json={
+                            "price_before": price_before,
+                            "price_after": price_after,
+                            "price_change_pct": round(change_pct, 2),
+                        }, headers={**headers, "Content-Type": "application/json"})
+                    fetched += 1
+                except Exception:
+                    pass
+        except Exception:
+            # Skip this event on any error, continue with next
+            await asyncio.sleep(13)
             continue
-
-        report_date = event["report_date"]
-
-        price_before = await get_close_price(client, ticker, report_date)
-        await asyncio.sleep(13)
-
-        price_after = await get_price_after(client, ticker, report_date)
-        await asyncio.sleep(13)
-
-        if price_before and price_after:
-            change_pct = ((price_after - price_before) / price_before) * 100
-            try:
-                patch_url = f"{settings.supabase_url}/rest/v1/earnings_events?id=eq.{event['id']}"
-                async with hx.AsyncClient() as patch_client:
-                    await patch_client.patch(patch_url, json={
-                        "price_before": price_before,
-                        "price_after": price_after,
-                        "price_change_pct": round(change_pct, 2),
-                    }, headers={**headers, "Content-Type": "application/json"})
-                fetched += 1
-            except Exception:
-                pass
 
     await client.aclose()
     return fetched

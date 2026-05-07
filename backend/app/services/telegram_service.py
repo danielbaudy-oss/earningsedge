@@ -24,18 +24,18 @@ class TelegramService:
             return False
 
         # Build message
-        emoji = {"buy": "🟢", "sell": "🔴", "avoid": "🟡"}.get(recommendation, "📊")
+        rec_label = {"buy": "[BUY]", "sell": "[SELL]", "avoid": "[AVOID]"}.get(recommendation, "")
         lines = [
-            f"{emoji} <b>Earnings Alert: {ticker}</b>",
-            f"📅 {company} reports on <b>{earnings_date}</b>",
+            f"<b>EarningsEdge Alert: {ticker}</b>",
+            f"{company} reports on <b>{earnings_date}</b>",
         ]
 
         if recommendation:
-            lines.append(f"🤖 AI Recommendation: <b>{recommendation.upper()}</b>")
+            lines.append(f"AI Recommendation: <b>{rec_label}</b>")
         if confidence:
-            lines.append(f"📈 Confidence: {confidence:.0%}")
+            lines.append(f"Confidence: {confidence:.0%}")
 
-        lines.append("\n💡 Check EarningsEdge for full analysis")
+        lines.append("\nCheck EarningsEdge for full analysis")
 
         message = "\n".join(lines)
 

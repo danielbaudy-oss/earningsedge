@@ -76,13 +76,13 @@ export function Watchlist() {
       {/* Popup Modal */}
       {selectedTicker && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto"
           onClick={() => setSelectedTicker(null)}
         >
-          <div className="relative w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full max-w-lg my-8" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setSelectedTicker(null)}
-              className="absolute -top-3 -right-3 z-10 rounded-full bg-white p-1.5 shadow-lg hover:bg-gray-100"
+              className="sticky top-0 ml-auto mb-2 flex rounded-full bg-white p-1.5 shadow-lg hover:bg-gray-100 z-10"
               aria-label="Close"
             >
               <X className="h-4 w-4 text-gray-600" />

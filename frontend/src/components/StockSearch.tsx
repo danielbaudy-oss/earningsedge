@@ -43,7 +43,7 @@ export function StockSearch({ onSelect }: StockSearchProps) {
             setIsOpen(true);
           }}
           onFocus={() => setIsOpen(true)}
-          className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+          className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 text-base focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
           aria-label="Search stocks"
           role="combobox"
           aria-expanded={isOpen && !!results?.length}

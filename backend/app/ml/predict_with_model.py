@@ -21,6 +21,7 @@ Output format per spec:
 
 import asyncio
 import httpx
+import math
 import numpy as np
 import pandas as pd
 import joblib
@@ -394,12 +395,9 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     else:
         margin_risk = 0.1
 
-    # --- STOCK PRICE RISK (10%) ---
-    # Smooth gradient: lower price = higher risk
-    if stock_price > 0:
-        price_risk = max(0, min(1.0, 1.0 - (stock_price / 50)))
-    else:
-        price_risk = 0.3
+    # --- STOCK PRICE RISK ---
+    # REMOVED: price is already captured in quality_score via price_score factor.
+    # No double-counting.
 
     # --- SECTOR RISK (10%) ---
     high_risk_sectors = {"Biotechnology", "Pharmaceuticals"}
@@ -416,15 +414,15 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     quality_risk = max(0, min(1.0, 1.0 - (quality_score / 100)))
 
     # Weighted combination (totals 100)
+    # Quality is the main driver of "is this stock reliable/predictable"
     risk = (
-        uncertainty_risk * 10 +
-        vol_risk * 10 +
+        uncertainty_risk * 5 +
+        vol_risk * 5 +
         beta_risk * 5 +
         downside * 5 +
-        margin_risk * 15 +
-        price_risk * 10 +
+        margin_risk * 10 +
         sector_risk * 10 +
-        quality_risk * 35
+        quality_risk * 60
     )
 
     return int(max(5, min(95, risk)))
@@ -454,12 +452,13 @@ def compute_quality_score(
     market_cap_score = min(1.0, max(0.0, market_cap / 2_000_000_000))   # Saturates at $2B
     volume_score = min(1.0, max(0.0, avg_volume / 2_000_000))           # Saturates at 2M shares/day
     coverage_score = min(1.0, max(0.0, analyst_count / 10))             # Saturates at 10 analysts
-    price_score = min(1.0, max(0.0, stock_price / 30))                  # Saturates at $30
+    price_score = min(1.0, max(0.0, 1.0 - math.exp(-stock_price * 0.08)))  # Exponential: $1→0.08, $5→0.33, $10→0.55, $20→0.80, $50→0.98
     earnings_score = min(1.0, max(0.0, earnings_consistency))
 
-    # Weighted arithmetic mean — one weak factor reduces score but doesn't destroy it
-    # Weights: market_cap=0.30, volume=0.20, coverage=0.20, price=0.15, earnings=0.15
-    weights = [0.30, 0.20, 0.20, 0.15, 0.15]
+    # Weighted arithmetic mean
+    # Price is the dominant factor — exponential curve means low price crushes quality
+    # Weights: market_cap=0.15, volume=0.10, coverage=0.10, price=0.55, earnings=0.10
+    weights = [0.15, 0.10, 0.10, 0.55, 0.10]
     scores = [market_cap_score, volume_score, coverage_score, price_score, earnings_score]
 
     # Weighted average
@@ -1136,7 +1135,9 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     # --- TOTAL SCORE ---
     # Current signals (40%) + Beat probability (20%) + Direction (20%) +
     # Fundamentals (10%) + Low risk bonus (10%)
-    risk_bonus = (100 - risk_score) / 100
+    # Risk bonus: exponential curve — high risk tanks the score
+    # risk 0 → 1.0, risk 20 → 0.70, risk 40 → 0.49, risk 60 → 0.34, risk 80 → 0.24
+    risk_bonus = math.exp(-risk_score * 0.018)
 
     # Current signals composite
     signals_bonus = 0.5
@@ -1156,11 +1157,11 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     signals_bonus = max(0.1, min(0.9, signals_bonus))
 
     total_score = int(
-        signals_bonus * 30 +
-        beat_prob * 15 +
-        direction_prob * 15 +
+        signals_bonus * 15 +
+        beat_prob * 10 +
+        direction_prob * 10 +
         fundamentals_strength * 10 +
-        risk_bonus * 30
+        risk_bonus * 55
     )
 
     total_score = max(5, min(95, total_score))

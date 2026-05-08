@@ -578,11 +578,16 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     risk_score = calculate_risk_score(beat_prob, direction_prob, expected_move, volatility, beta)
 
     # Total score (0-100)
-    # Weighted: beat_prob (25%) + direction_prob (25%) + fundamentals (15%) + low_risk (15%) + signals (20%)
+    # Current state weighs more than historical patterns
+    # Current signals (40%): momentum, analyst revisions, insider activity
+    # Beat probability (20%): historical pattern
+    # Direction probability (20%): model prediction
+    # Fundamentals (10%): revenue growth, margins
+    # Low risk (10%): uncertainty level
     fundamentals_signal = min(max((features.get("revenue_growth", 0) + 10) / 40, 0), 1)
     risk_bonus = (100 - risk_score) / 100
 
-    # New signals bonus (analyst revisions + insider buying)
+    # Current signals bonus (analyst revisions + insider buying + momentum)
     signals_bonus = 0.5  # Neutral baseline
     rev_signal = features.get("analyst_revision_signal", 0)
     insider = features.get("insider_signal", 0)
@@ -594,14 +599,19 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
         signals_bonus += 0.15
     elif insider < -0.3:
         signals_bonus -= 0.1
+    # Momentum adds to current state signal
+    if momentum_signal > 15:
+        signals_bonus += 0.1
+    elif momentum_signal < -15:
+        signals_bonus -= 0.15
     signals_bonus = max(0.1, min(0.9, signals_bonus))
 
     total_score = int(
-        beat_prob * 25 +
-        direction_prob * 25 +
-        fundamentals_signal * 15 +
-        risk_bonus * 15 +
-        signals_bonus * 20
+        signals_bonus * 40 +
+        beat_prob * 20 +
+        direction_prob * 20 +
+        fundamentals_signal * 10 +
+        risk_bonus * 10
     )
     total_score = max(5, min(95, total_score))
 

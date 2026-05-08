@@ -76,15 +76,37 @@ async def get_stock(ticker: str):
 
 @router.get("/{ticker}/chart")
 async def get_stock_chart(ticker: str):
-    """Get YTD price history for a stock chart. Tries marketdata.app first, Polygon as fallback."""
+    """Get YTD price history for a stock chart. Tries marketdata.app first, Polygon as fallback.
+    Also returns past earnings report dates for chart annotations."""
     import httpx
-    from datetime import date
+    from datetime import date, timedelta
     from app.core.config import get_settings
     settings = get_settings()
 
     today = date.today()
-    from_date = date(today.year, 1, 1).isoformat()
+    from_date = (today - timedelta(days=365)).isoformat()
     to_date = today.isoformat()
+
+    # Get earnings dates for this stock (within chart range)
+    sb = get_supabase()
+    earnings_dates = []
+    try:
+        stock_result = sb.table("stocks").select("id").eq("ticker", ticker.upper()).execute()
+        if stock_result.data:
+            stock_id = stock_result.data[0]["id"]
+            events = (
+                sb.table("earnings_events")
+                .select("report_date")
+                .eq("stock_id", stock_id)
+                .gte("report_date", from_date)
+                .lte("report_date", to_date)
+                .order("report_date")
+                .execute()
+            )
+            if events.data:
+                earnings_dates = [e["report_date"] for e in events.data]
+    except Exception:
+        pass
 
     # Try marketdata.app first (higher rate limit)
     if settings.marketdata_api_key:
@@ -105,7 +127,7 @@ async def get_stock_chart(ticker: str):
                             {"date": t * 1000, "price": round(c, 2)}
                             for t, c in zip(timestamps, closes)
                         ]
-                        return {"prices": prices, "ticker": ticker.upper()}
+                        return {"prices": prices, "ticker": ticker.upper(), "earnings_dates": earnings_dates}
         except Exception:
             pass
 
@@ -119,16 +141,16 @@ async def get_stock_chart(ticker: str):
         })
 
     if resp.status_code != 200:
-        return {"prices": []}
+        return {"prices": [], "earnings_dates": earnings_dates}
 
     data = resp.json()
     results = data.get("results", [])
     if not results:
-        return {"prices": []}
+        return {"prices": [], "earnings_dates": earnings_dates}
 
     prices = [
         {"date": bar["t"], "price": round(bar["c"], 2)}
         for bar in results
     ]
 
-    return {"prices": prices, "ticker": ticker.upper()}
+    return {"prices": prices, "ticker": ticker.upper(), "earnings_dates": earnings_dates}

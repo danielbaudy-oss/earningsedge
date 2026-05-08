@@ -53,9 +53,15 @@ export interface Prediction {
   price_up_probability?: number;
   price_down_probability?: number;
   expected_move_pct?: number;
+  // T+1 and T+3 split predictions
+  price_up_probability_t1?: number;
+  price_up_probability_t3?: number;
+  expected_move_pct_t1?: number;
+  expected_move_pct_t3?: number;
+  implied_move_pct?: number;
   expected_volatility?: number;
   predicted_direction?: string;
-  feature_importance?: Record<string, number>;
+  feature_importance?: Record<string, any>;
   explanation_text?: string;
   actual_outcome?: string;
   actual_move_pct?: number;

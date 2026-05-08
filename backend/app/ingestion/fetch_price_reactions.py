@@ -33,51 +33,134 @@ async def get_close_price(client: httpx.AsyncClient, ticker: str, target_date: s
     return None
 
 
-async def get_price_after(client: httpx.AsyncClient, ticker: str, earnings_date: str) -> float | None:
-    """Get closing price 1 trading day after earnings."""
-    # Go forward 1-3 days to find next trading day
-    for offset in range(1, 5):
+async def get_pre_earnings_close(client: httpx.AsyncClient, ticker: str,
+                                  report_date: str, report_time: str = "after_market") -> float | None:
+    """
+    Get the correct pre-earnings close price.
+    
+    This is critical for accurate training data:
+    - After market close (AMC): use same-day close (last price before news)
+    - Before market open (BMO): use PREVIOUS day's close (last price before news)
+    
+    The distinction matters because:
+    - AMC: stock trades normally all day, then news hits after 4pm → compare to same-day close
+    - BMO: news hits before 9:30am → the entire day's trading IS the reaction → compare to prev close
+    """
+    if report_time == "before_market":
+        # BMO: get previous trading day's close
+        for offset in range(1, 5):
+            d = date.fromisoformat(report_date) - timedelta(days=offset)
+            url = f"{POLYGON_BASE}/v1/open-close/{ticker}/{d.isoformat()}"
+            resp = await client.get(url, params={"adjusted": "true", "apiKey": settings.polygon_api_key})
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("close"):
+                    return data["close"]
+    else:
+        # AMC (default): use same-day close
+        return await get_close_price(client, ticker, report_date)
+    
+    return None
+
+
+async def get_price_after(client: httpx.AsyncClient, ticker: str,
+                          earnings_date: str, report_time: str = "after_market") -> float | None:
+    """
+    Get closing price for T+1 reaction.
+    
+    - AMC: T+1 = next trading day close (the first full day of reaction)
+    - BMO: T+1 = same day close (the stock reacts during the day it's reported)
+    """
+    if report_time == "before_market":
+        # BMO: the reaction IS the same day — get same-day close
+        return await get_close_price(client, earnings_date, earnings_date)
+    else:
+        # AMC: get next trading day close
+        for offset in range(1, 5):
+            d = date.fromisoformat(earnings_date) + timedelta(days=offset)
+            url = f"{POLYGON_BASE}/v1/open-close/{ticker}/{d.isoformat()}"
+            resp = await client.get(url, params={"adjusted": "true", "apiKey": settings.polygon_api_key})
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("close"):
+                    return data["close"]
+    return None
+
+
+async def get_price_after_t3(client: httpx.AsyncClient, ticker: str,
+                              earnings_date: str, report_time: str = "after_market") -> float | None:
+    """
+    Get closing price 3 trading days after earnings.
+    
+    - AMC: count 3 trading days starting from the day after
+    - BMO: count 3 trading days starting from the report day itself (day 1 = report day)
+    """
+    start_offset = 0 if report_time == "before_market" else 1
+    trading_days_found = 0
+    last_close = None
+    
+    for offset in range(start_offset, start_offset + 8):
         d = date.fromisoformat(earnings_date) + timedelta(days=offset)
         url = f"{POLYGON_BASE}/v1/open-close/{ticker}/{d.isoformat()}"
         resp = await client.get(url, params={"adjusted": "true", "apiKey": settings.polygon_api_key})
         if resp.status_code == 200:
             data = resp.json()
             if data.get("close"):
-                return data["close"]
-    return None
+                trading_days_found += 1
+                last_close = data["close"]
+                if trading_days_found >= 3:
+                    return last_close
+    
+    return last_close if trading_days_found >= 2 else None
 
 
 async def fetch_reactions_for_stock(client: httpx.AsyncClient, stock_id: int,
                                      ticker: str, events: list) -> int:
-    """Fetch price reactions for all historical earnings of one stock."""
+    """Fetch price reactions (T+1 and T+3) for all historical earnings of one stock."""
     sb = get_supabase()
     updated = 0
 
     for event in events:
-        # Skip if already has price data
-        if event.get("price_change_pct") is not None:
+        # Skip if already has both T+1 and T+3 price data
+        if event.get("price_change_pct") is not None and event.get("price_change_pct_t3") is not None:
             continue
 
         report_date = event["report_date"]
+        report_time = event.get("report_time", "after_market")
+        update_data = {}
 
-        # Get price before (day before or same day open)
-        price_before = await get_close_price(client, ticker, report_date)
-        await asyncio.sleep(12.5)  # Polygon rate limit
+        # Get pre-earnings close (handles BMO vs AMC correctly)
+        price_before = event.get("price_before")
+        if price_before is None:
+            price_before = await get_pre_earnings_close(client, ticker, report_date, report_time)
+            await asyncio.sleep(12.5)
 
-        # Get price after (next trading day close)
-        price_after = await get_price_after(client, ticker, report_date)
-        await asyncio.sleep(12.5)  # Polygon rate limit
+        if not price_before:
+            print(f"    {report_date}: Could not get pre-earnings price")
+            continue
 
-        if price_before and price_after:
-            change_pct = ((price_after - price_before) / price_before) * 100
+        # Get T+1 if missing
+        if event.get("price_change_pct") is None:
+            price_after = await get_price_after(client, ticker, report_date, report_time)
+            await asyncio.sleep(12.5)
 
-            # Update in Supabase
-            update_data = {
-                "price_before": price_before,
-                "price_after": price_after,
-                "price_change_pct": round(change_pct, 2),
-            }
+            if price_after:
+                change_pct = ((price_after - price_before) / price_before) * 100
+                update_data["price_before"] = price_before
+                update_data["price_after"] = price_after
+                update_data["price_change_pct"] = round(change_pct, 2)
 
+        # Get T+3 if missing
+        if event.get("price_change_pct_t3") is None:
+            price_after_t3 = await get_price_after_t3(client, ticker, report_date, report_time)
+            await asyncio.sleep(12.5)
+
+            if price_after_t3:
+                change_pct_t3 = ((price_after_t3 - price_before) / price_before) * 100
+                update_data["price_after_t3"] = price_after_t3
+                update_data["price_change_pct_t3"] = round(change_pct_t3, 2)
+
+        if update_data:
             try:
                 headers = {
                     "apikey": settings.supabase_service_key,
@@ -89,11 +172,13 @@ async def fetch_reactions_for_stock(client: httpx.AsyncClient, stock_id: int,
                 async with httpx.AsyncClient() as patch_client:
                     await patch_client.patch(url, json=update_data, headers=headers)
                 updated += 1
-                print(f"    {report_date}: ${price_before:.2f} → ${price_after:.2f} ({change_pct:+.2f}%)")
+                t1 = update_data.get("price_change_pct", "n/a")
+                t3 = update_data.get("price_change_pct_t3", "n/a")
+                print(f"    {report_date} ({report_time}): T+1={t1}% T+3={t3}%")
             except Exception as e:
-                print(f"    ❌ {report_date}: {e}")
+                print(f"    {report_date}: {e}")
         else:
-            print(f"    ⚠️  {report_date}: Could not fetch prices")
+            print(f"    {report_date}: Could not fetch post-earnings prices")
 
     return updated
 
@@ -114,7 +199,7 @@ async def fetch_all_price_reactions():
         # Get historical earnings without price data
         events = (
             sb.table("earnings_events")
-            .select("id, report_date, price_change_pct")
+            .select("id, report_date, report_time, price_before, price_change_pct, price_change_pct_t3")
             .eq("stock_id", stock["id"])
             .lte("report_date", date.today().isoformat())
             .order("report_date", desc=True)
@@ -122,8 +207,9 @@ async def fetch_all_price_reactions():
             .execute()
         )
 
-        # Filter to events missing price data
-        missing = [e for e in events.data if e.get("price_change_pct") is None]
+        # Filter to events missing price data (T+1 or T+3)
+        missing = [e for e in events.data
+                   if e.get("price_change_pct") is None or e.get("price_change_pct_t3") is None]
         if not missing:
             continue
 
@@ -161,7 +247,7 @@ async def fetch_recent_reactions(days_back: int = 7) -> int:
     }
     url = f"{settings.supabase_url}/rest/v1/earnings_events"
     params = {
-        "select": "id,stock_id,report_date,price_change_pct,stocks(ticker)",
+        "select": "id,stock_id,report_date,report_time,price_before,price_change_pct,price_change_pct_t3,stocks(ticker)",
         "report_date": f"gte.{cutoff}",
         "price_change_pct": "is.null",
         "eps_actual": "not.is.null",
@@ -189,13 +275,14 @@ async def fetch_recent_reactions(days_back: int = 7) -> int:
             continue
 
         report_date = event["report_date"]
+        report_time = event.get("report_time", "after_market")
 
-        # Get price before
-        price_before = await get_close_price(client, ticker, report_date)
-        await asyncio.sleep(13)  # Polygon rate limit
+        # Get pre-earnings close (BMO vs AMC aware)
+        price_before = await get_pre_earnings_close(client, ticker, report_date, report_time)
+        await asyncio.sleep(13)
 
-        # Get price after
-        price_after = await get_price_after(client, ticker, report_date)
+        # Get T+1
+        price_after = await get_price_after(client, ticker, report_date, report_time)
         await asyncio.sleep(13)
 
         if price_before and price_after:
@@ -212,7 +299,7 @@ async def fetch_recent_reactions(days_back: int = 7) -> int:
                         **headers, "Content-Type": "application/json", "Prefer": "return=representation"
                     })
                 fetched += 1
-                print(f"    {ticker} ({report_date}): {change_pct:+.2f}%")
+                print(f"    {ticker} ({report_date} {report_time}): {change_pct:+.2f}%")
             except Exception:
                 pass
 
@@ -237,7 +324,7 @@ async def backfill_price_reactions(max_fetches: int = 10) -> int:
     }
     url = f"{settings.supabase_url}/rest/v1/earnings_events"
     params = {
-        "select": "id,stock_id,report_date,stocks(ticker)",
+        "select": "id,stock_id,report_date,report_time,stocks(ticker)",
         "price_change_pct": "is.null",
         "eps_actual": "not.is.null",
         "report_date": f"lte.{date.today().isoformat()}",
@@ -264,11 +351,12 @@ async def backfill_price_reactions(max_fetches: int = 10) -> int:
                 continue
 
             report_date = event["report_date"]
+            report_time = event.get("report_time", "after_market")
 
-            price_before = await get_close_price(client, ticker, report_date)
+            price_before = await get_pre_earnings_close(client, ticker, report_date, report_time)
             await asyncio.sleep(13)
 
-            price_after = await get_price_after(client, ticker, report_date)
+            price_after = await get_price_after(client, ticker, report_date, report_time)
             await asyncio.sleep(13)
 
             if price_before and price_after:

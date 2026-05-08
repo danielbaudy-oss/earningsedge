@@ -22,9 +22,11 @@ export function PriceChart({ ticker }: PriceChartProps) {
   }
 
   const prices = data?.prices || [];
+  const earningsDates = data?.earnings_dates || [];
+
   if (prices.length < 2) {
     return null;
   }
 
-  return <ChartInner prices={prices} />;
+  return <ChartInner prices={prices} earningsDates={earningsDates} />;
 }

@@ -134,6 +134,37 @@ async def update_prediction_outcomes():
                 "correct": prediction_correct,
             })
 
+    # Update IV snapshots with actual outcomes
+    try:
+        iv_snapshots = sb.table("iv_snapshots").select("id, earnings_event_id, implied_move_pct").execute()
+        iv_map = {s["earnings_event_id"]: s for s in (iv_snapshots.data or [])}
+
+        for pred in predictions.data:
+            event = event_map.get(pred.get("earnings_event_id"))
+            if not event or event.get("price_change_pct") is None:
+                continue
+
+            iv_snap = iv_map.get(pred.get("earnings_event_id"))
+            if iv_snap and iv_snap.get("implied_move_pct") and iv_snap["implied_move_pct"] > 0:
+                actual_abs = abs(event["price_change_pct"])
+                ratio = actual_abs / iv_snap["implied_move_pct"]
+                try:
+                    headers_iv = {
+                        "apikey": settings.supabase_service_key,
+                        "Authorization": f"Bearer {settings.supabase_service_key}",
+                        "Content-Type": "application/json",
+                    }
+                    url_iv = f"{settings.supabase_url}/rest/v1/iv_snapshots?id=eq.{iv_snap['id']}"
+                    async with httpx.AsyncClient() as iv_client:
+                        await iv_client.patch(url_iv, json={
+                            "actual_move_pct": event["price_change_pct"],
+                            "iv_accuracy_ratio": round(ratio, 3),
+                        }, headers=headers_iv)
+                except Exception:
+                    pass
+    except Exception:
+        pass  # iv_snapshots table might not exist yet
+
     # Summary
     if errors_log:
         avg_beat_err = sum(e["beat_error"] for e in errors_log) / len(errors_log)

@@ -44,7 +44,6 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
   const analyzeMutation = useMutation({
     mutationFn: () => analyzeTicker(ticker),
     onSuccess: (data) => {
-      // Only invalidate if we got a real prediction back
       if (data.recommendation) {
         queryClient.invalidateQueries({ queryKey: ["prediction", ticker] });
       }
@@ -98,9 +97,17 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
   const riskScore = prediction.feature_importance?.risk_score;
   const topReasons = prediction.feature_importance?.top_reasons as string[] | undefined;
 
-  const moveColor = (prediction.expected_move_pct ?? 0) >= 0
-    ? "text-green-700"
-    : "text-red-700";
+  // T+1 and T+3 values (from feature_importance JSON)
+  const t1Data = prediction.feature_importance?.t1;
+  const t3Data = prediction.feature_importance?.t3;
+  const moveT1 = t1Data?.expected_move_pct ?? prediction.expected_move_pct ?? 0;
+  const moveT3 = t3Data?.expected_move_pct;
+  const upProbT1 = t1Data?.direction_prob ?? prediction.price_up_probability;
+  const upProbT3 = t3Data?.direction_prob;
+  const impliedMove = prediction.feature_importance?.implied_move_pct ?? prediction.implied_move_pct;
+
+  const moveT1Color = moveT1 >= 0 ? "text-green-700" : "text-red-700";
+  const moveT3Color = (moveT3 ?? 0) >= 0 ? "text-green-700" : "text-red-700";
 
   return (
     <div className="card">
@@ -116,6 +123,9 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
                 <span className="ml-2">
                   {prediction.exchange === "XNAS" ? "Nasdaq" : prediction.exchange === "XNYS" ? "NYSE" : prediction.exchange}
                 </span>
+              )}
+              {prediction.feature_importance?.is_confirmed === false && (
+                <span className="ml-2 text-amber-500" title="Date not confirmed by multiple sources">~estimated</span>
               )}
             </p>
           )}
@@ -138,48 +148,72 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
         <DescriptionToggle text={prediction.description} />
       )}
 
-      {/* Main Metrics */}
-      <div className="mt-6 grid grid-cols-3 gap-4">
-        <div className="rounded-lg bg-gray-50 p-3 text-center">
-          <p className="text-xs text-gray-500">Expected Move</p>
-          <p className={`text-2xl font-bold ${moveColor}`}>
-            {prediction.expected_move_pct !== undefined
-              ? `${prediction.expected_move_pct >= 0 ? "+" : ""}${prediction.expected_move_pct.toFixed(1)}%`
-              : "—"}
-          </p>
-          <p className="text-xs text-gray-400">after earnings</p>
-        </div>
-        <div className="rounded-lg bg-gray-50 p-3 text-center">
-          <p className="text-xs text-gray-500">Beats Earnings?</p>
-          <p className="text-2xl font-bold text-gray-900">
+      {/* Beat Probability */}
+      <div className="mt-5 rounded-lg bg-gray-50 p-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-gray-700">Earnings Beat Probability</p>
+          <p className="text-xl font-bold text-gray-900">
             {prediction.beat_probability
               ? `${(prediction.beat_probability * 100).toFixed(0)}%`
               : "—"}
           </p>
-          <p className="text-xs text-gray-400">
-            {prediction.beat_probability && prediction.beat_probability > 0.65
-              ? "likely yes"
-              : prediction.beat_probability && prediction.beat_probability < 0.4
-              ? "likely no"
-              : "uncertain"}
-          </p>
-        </div>
-        <div className="rounded-lg bg-gray-50 p-3 text-center">
-          <p className="text-xs text-gray-500">Stock Goes Up?</p>
-          <p className="text-2xl font-bold text-gray-900">
-            {prediction.price_up_probability
-              ? `${(prediction.price_up_probability * 100).toFixed(0)}%`
-              : "—"}
-          </p>
-          <p className="text-xs text-gray-400">
-            {prediction.price_up_probability && prediction.price_up_probability > 0.6
-              ? "likely yes"
-              : prediction.price_up_probability && prediction.price_up_probability < 0.4
-              ? "likely no"
-              : "coin flip"}
-          </p>
         </div>
       </div>
+
+      {/* T+1 and T+3 Predictions */}
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {/* T+1 */}
+        <div className="rounded-lg border border-gray-100 p-3">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">T+1 Reaction</p>
+          <p className="text-xs text-gray-400 mb-2">Next trading day</p>
+          <p className={`text-2xl font-bold ${moveT1Color}`}>
+            {moveT1 >= 0 ? "+" : ""}{moveT1.toFixed(1)}%
+          </p>
+          <div className="mt-1 flex items-center gap-1">
+            {moveT1 >= 0 ? (
+              <TrendingUp className="h-3 w-3 text-green-600" />
+            ) : (
+              <TrendingDown className="h-3 w-3 text-red-600" />
+            )}
+            <span className="text-xs text-gray-500">
+              {upProbT1 ? `${(upProbT1 * 100).toFixed(0)}% upside` : ""}
+            </span>
+          </div>
+        </div>
+
+        {/* T+3 */}
+        <div className="rounded-lg border border-gray-100 p-3">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">T+3 Outlook</p>
+          <p className="text-xs text-gray-400 mb-2">After 3 trading days</p>
+          {moveT3 !== undefined && moveT3 !== null ? (
+            <>
+              <p className={`text-2xl font-bold ${moveT3Color}`}>
+                {moveT3 >= 0 ? "+" : ""}{moveT3.toFixed(1)}%
+              </p>
+              <div className="mt-1 flex items-center gap-1">
+                {moveT3 >= 0 ? (
+                  <TrendingUp className="h-3 w-3 text-green-600" />
+                ) : (
+                  <TrendingDown className="h-3 w-3 text-red-600" />
+                )}
+                <span className="text-xs text-gray-500">
+                  {upProbT3 ? `${(upProbT3 * 100).toFixed(0)}% upside` : ""}
+                </span>
+              </div>
+            </>
+          ) : (
+            <p className="text-2xl font-bold text-gray-300">—</p>
+          )}
+        </div>
+      </div>
+
+      {/* Implied vs Expected Move */}
+      {impliedMove && (
+        <div className="mt-3 flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2">
+          <span className="text-xs text-blue-700">Options implied move</span>
+          <span className="text-sm font-medium text-blue-900">±{impliedMove.toFixed(1)}%</span>
+        </div>
+      )}
 
       {/* Price Chart */}
       <PriceChart ticker={ticker} />
@@ -208,7 +242,7 @@ export function PredictionCard({ ticker }: PredictionCardProps) {
         </div>
       )}
 
-      {/* Company Context */}
+      {/* Key Context */}
       {topReasons && topReasons.length > 0 && (
         <div className="mt-5 rounded-lg border border-gray-100 bg-white p-4">
           <p className="text-sm font-medium text-gray-700">Key Context</p>

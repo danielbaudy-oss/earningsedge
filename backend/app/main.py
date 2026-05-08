@@ -61,6 +61,40 @@ async def get_model_accuracy_endpoint():
     return await get_model_accuracy()
 
 
+@app.post("/api/model/backtest")
+async def run_backtest_endpoint(ticker: str = None, last_n: int = 50):
+    """
+    Run backtesting against historical earnings data.
+    Tests the prediction model against past events where we know the outcome.
+    """
+    from app.ml.backtest import run_backtest
+    summary = await run_backtest(ticker=ticker, last_n=last_n)
+    return {
+        "total_events": summary.total_events,
+        "beat_accuracy": round(summary.beat_accuracy, 3),
+        "direction_accuracy": round(summary.direction_accuracy, 3),
+        "avg_move_error": round(summary.avg_move_error, 2),
+        "recommendation_accuracy": round(summary.recommendation_accuracy, 3),
+        "avg_score_when_correct": round(summary.avg_score_when_correct, 1),
+        "avg_score_when_wrong": round(summary.avg_score_when_wrong, 1),
+        "results": [
+            {
+                "ticker": r.ticker,
+                "date": r.report_date,
+                "predicted_direction": r.predicted_direction,
+                "actual_direction": r.actual_direction,
+                "predicted_move": r.predicted_move,
+                "actual_move": r.actual_move,
+                "beat_prob": round(r.beat_prob, 2),
+                "direction_prob": round(r.direction_prob, 2),
+                "correct": r.correct_direction,
+                "score": r.total_score,
+            }
+            for r in summary.results[:30]  # Limit response size
+        ],
+    }
+
+
 @app.get("/api/model/errors")
 async def get_prediction_errors():
     """Get recent prediction errors for transparency."""

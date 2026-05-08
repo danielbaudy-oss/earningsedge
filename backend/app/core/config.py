@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # Market Data (options IV)
     marketdata_api_key: str = ""
 
+    # FMP (Financial Modeling Prep) - earnings calendar cross-validation
+    fmp_api_key: str = ""
+
     # ML
     model_path: str = "./models"
     retrain_hour: int = 2

@@ -23,6 +23,12 @@ class PredictionResponse(BaseModel):
     price_up_probability: Optional[float] = None
     price_down_probability: Optional[float] = None
     expected_move_pct: Optional[float] = None
+    # T+1 and T+3 split
+    price_up_probability_t1: Optional[float] = None
+    price_up_probability_t3: Optional[float] = None
+    expected_move_pct_t1: Optional[float] = None
+    expected_move_pct_t3: Optional[float] = None
+    implied_move_pct: Optional[float] = None
     expected_volatility: Optional[float] = None
     predicted_direction: Optional[str] = None
     feature_importance: Optional[dict] = None
@@ -49,7 +55,7 @@ async def get_prediction(ticker: str):
     # Get latest prediction
     pred_result = (
         sb.table("predictions")
-        .select("*, earnings_events(report_date)")
+        .select("*, earnings_events(report_date, is_confirmed)")
         .eq("stock_id", stock["id"])
         .order("prediction_date", desc=True)
         .limit(1)
@@ -61,6 +67,10 @@ async def get_prediction(ticker: str):
 
     pred = pred_result.data[0]
     event = pred.get("earnings_events") or {}
+
+    # Inject is_confirmed into feature_importance for frontend display
+    fi = pred.get("feature_importance") or {}
+    fi["is_confirmed"] = event.get("is_confirmed", True)
 
     return PredictionResponse(
         id=pred["id"],
@@ -78,7 +88,7 @@ async def get_prediction(ticker: str):
         expected_move_pct=pred.get("expected_move_pct"),
         expected_volatility=pred.get("expected_volatility"),
         predicted_direction=pred.get("predicted_direction"),
-        feature_importance=pred.get("feature_importance"),
+        feature_importance=fi,
         explanation_text=pred.get("explanation_text"),
         actual_outcome=pred.get("actual_outcome"),
         actual_move_pct=pred.get("actual_move_pct"),

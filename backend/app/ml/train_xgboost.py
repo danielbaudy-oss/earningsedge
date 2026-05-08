@@ -71,13 +71,24 @@ def build_features_from_history(earnings: list, event_index: int) -> dict | None
     features["min_surprise_prior"] = min(surprises)
     features["num_prior_quarters"] = len(surprises)
 
+    # Recency-weighted beat rate (exponential decay, recent quarters matter more)
+    decay = 0.80
+    weights = [decay ** i for i in range(len(surprises))]
+    total_weight = sum(weights)
+    features["weighted_beat_rate"] = sum(
+        (1.0 if s > 0 else 0.0) * w for s, w in zip(surprises, weights)
+    ) / total_weight
+    features["weighted_avg_surprise"] = sum(
+        s * w for s, w in zip(surprises, weights)
+    ) / total_weight
+
     # Trend
     if len(surprises) >= 3:
         features["surprise_trend"] = np.mean(surprises[:2]) - np.mean(surprises[2:])
     else:
         features["surprise_trend"] = 0
 
-    # Prior price reactions
+    # Prior price reactions (used for MAGNITUDE estimation, not direction)
     prior_moves = []
     for e in prior[:8]:
         if e.get("price_change_pct") is not None:
@@ -88,11 +99,14 @@ def build_features_from_history(earnings: list, event_index: int) -> dict | None
         features["move_std_prior"] = np.std(prior_moves) if len(prior_moves) > 1 else 0
         features["max_move_prior"] = max(prior_moves)
         features["min_move_prior"] = min(prior_moves)
+        # Average absolute move (magnitude regardless of direction)
+        features["avg_abs_move_prior"] = np.mean([abs(m) for m in prior_moves])
     else:
         features["avg_move_prior"] = 0
         features["move_std_prior"] = 0
         features["max_move_prior"] = 0
         features["min_move_prior"] = 0
+        features["avg_abs_move_prior"] = 0
 
     # Estimate direction (are estimates going up or down?)
     estimates = [e.get("eps_estimate") for e in prior[:4] if e.get("eps_estimate") is not None]
@@ -116,19 +130,26 @@ def build_features_from_history(earnings: list, event_index: int) -> dict | None
 async def load_training_data() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray]:
     """
     Load training data from Supabase.
-    For each stock, use its earnings history to build features for each event.
+    
+    ONLY uses data available in the DB — no API calls.
+    Features are built purely from earnings history (beat patterns, price reactions).
+    
+    Live metrics (momentum, PE, etc.) are NOT used for training because:
+    1. We don't have historical snapshots of those metrics
+    2. Using today's metrics for past events = lookahead bias
+    3. Those features are only added at prediction time (current state)
     """
-    print("📊 Loading training data from Supabase...")
+    print("📊 Loading training data from Supabase (DB only, no API calls)...")
     sb = get_supabase()
-    client = httpx.AsyncClient(timeout=30.0)
 
-    # Get all stocks
+    # Get all stocks that have enough history
     stocks = sb.table("stocks").select("id, ticker").execute()
 
     all_features = []
     y_beat = []
     y_direction = []
     y_magnitude = []
+    skipped = 0
 
     for stock in stocks.data:
         ticker = stock["ticker"]
@@ -146,11 +167,8 @@ async def load_training_data() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np
 
         earnings = events.data
         if len(earnings) < 3:
+            skipped += 1
             continue
-
-        # Also fetch Finnhub metrics for enrichment
-        metrics_data = await fetch_finnhub(client, "stock/metric", {"symbol": ticker, "metric": "all"})
-        metrics = (metrics_data or {}).get("metric", {}) if isinstance(metrics_data, dict) else {}
 
         # Build features for each event (except the oldest ones used as history)
         for i in range(len(earnings) - 2):
@@ -162,44 +180,38 @@ async def load_training_data() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np
             if event.get("price_change_pct") is None:
                 continue
 
-            # Build features from prior history
+            # Build features from prior history (all DB-derived)
             features = build_features_from_history(earnings, i)
             if features is None:
                 continue
 
-            # Add fundamental features (static for now, from latest metrics)
-            features["revenue_growth"] = metrics.get("revenueGrowthTTMYoy", 0) or 0
-            features["eps_growth"] = metrics.get("epsGrowthTTMYoy", 0) or 0
-            features["operating_margin"] = metrics.get("operatingMarginTTM", 0) or 0
-            features["pe_ratio"] = metrics.get("peTTM", 0) or 0
-            features["beta"] = metrics.get("beta", 1) or 1
+            # Set live-metric features to 0 for training
+            # These will be filled at prediction time with current data
+            features["revenue_growth"] = 0
+            features["eps_growth"] = 0
+            features["operating_margin"] = 0
+            features["pe_ratio"] = 0
+            features["beta"] = 1
+            features["momentum_13w"] = 0
+            features["momentum_26w"] = 0
+            features["momentum_52w"] = 0
+            features["momentum_mtd"] = 0
+            features["momentum_5d"] = 0
+            features["price_vs_sp500_13w"] = 0
+            features["ytd_return"] = 0
+            features["range_position_52w"] = 0.5
+            features["short_interest_pct"] = 0
+            features["analyst_revision_signal"] = 0
+            features["revenue_beat_rate"] = 0.5
+            features["insider_signal"] = 0
+            features["sector_relative_perf"] = 0
 
-            # Price momentum / trend from Finnhub
-            features["momentum_13w"] = metrics.get("13WeekPriceReturnDaily", 0) or 0
-            features["momentum_26w"] = metrics.get("26WeekPriceReturnDaily", 0) or 0
-            features["momentum_52w"] = metrics.get("52WeekPriceReturnDaily", 0) or 0
-            features["momentum_mtd"] = metrics.get("monthToDatePriceReturnDaily", 0) or 0
-            features["momentum_5d"] = metrics.get("5DayPriceReturnDaily", 0) or 0
-            features["price_vs_sp500_13w"] = metrics.get("priceRelativeToS&P50013Week", 0) or 0
-            features["ytd_return"] = metrics.get("yearToDatePriceReturnDaily", 0) or 0
-
-            # 52-week range position (how close to high vs low)
-            high_52w = metrics.get("52WeekHigh", 0) or 0
-            low_52w = metrics.get("52WeekLow", 0) or 0
-            if high_52w > 0 and low_52w > 0 and high_52w != low_52w:
-                # Approximate current price from midpoint (we don't have exact current)
-                # Use YTD return to estimate position
-                features["range_position_52w"] = max(0, min(1, (high_52w - low_52w * 1.1) / (high_52w - low_52w)))
-            else:
-                features["range_position_52w"] = 0.5
-
-            # Earnings target hit patterns
-            # How often does this stock beat AND go up? (the correlation matters)
+            # Earnings reaction patterns (from DB data)
+            prior = earnings[i + 1:]
             beat_and_up = 0
             beat_and_down = 0
             miss_and_down = 0
             miss_and_up = 0
-            prior = earnings[i + 1:]
             for p in prior[:6]:
                 surprise = p.get("eps_surprise_pct", 0) or 0
                 move = p.get("price_change_pct")
@@ -230,12 +242,9 @@ async def load_training_data() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np
             y_direction.append(1 if event["price_change_pct"] > 0 else 0)
             y_magnitude.append(event["price_change_pct"])
 
-        await asyncio.sleep(1.2)  # Finnhub rate limit
-
-    await client.aclose()
-
     X = pd.DataFrame(all_features)
     print(f"✅ Built {len(X)} training samples with {len(X.columns)} features")
+    print(f"   Stocks processed: {len(stocks.data) - skipped}, skipped: {skipped} (insufficient history)")
     print(f"   Beat rate: {np.mean(y_beat):.1%}, Up rate: {np.mean(y_direction):.1%}")
     print(f"   Avg move: {np.mean(y_magnitude):+.2f}%, Std: {np.std(y_magnitude):.2f}%")
 

@@ -1157,11 +1157,11 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     signals_bonus = max(0.1, min(0.9, signals_bonus))
 
     total_score = int(
-        signals_bonus * 15 +
+        signals_bonus * 10 +
         beat_prob * 10 +
         direction_prob * 10 +
-        fundamentals_strength * 10 +
-        risk_bonus * 55
+        fundamentals_strength * 5 +
+        risk_bonus * 65
     )
 
     total_score = max(5, min(95, total_score))

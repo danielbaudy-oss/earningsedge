@@ -375,8 +375,10 @@ def generate_recommendation(score: int, mode: str, risk_score: int,
     Trader mode: more aggressive, lower threshold for buy
     Long-term mode: more conservative, needs stronger fundamentals
     
-    Key rule: NEVER recommend BUY if we think earnings will be missed.
-    That's a contradiction — you don't buy into an expected miss.
+    Key rules:
+    - NEVER recommend BUY if we think earnings will be missed
+    - NEVER recommend BUY for high-risk stocks (risk >= 60)
+    - Heavily unprofitable companies (margin < -100%) need extra conviction
     """
     if mode == "trader":
         if score >= 55 and direction_prob > 0.50 and risk_score < 60 and beat_prob > 0.45:
@@ -1030,6 +1032,21 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
         fundamentals_strength * 10 +
         risk_bonus * 10
     )
+
+    # Profitability penalty — deeply unprofitable companies get scored down
+    # so they don't rank at the top of the list above solid companies.
+    # A -925% margin biotech shouldn't outrank a profitable tech company.
+    op_margin = features.get("operating_margin", 0)
+    if op_margin < -100:
+        # Severely unprofitable (burning cash fast) — heavy penalty
+        total_score = int(total_score * 0.70)
+    elif op_margin < -50:
+        # Very unprofitable — moderate penalty
+        total_score = int(total_score * 0.80)
+    elif op_margin < -20:
+        # Unprofitable but not extreme — slight penalty
+        total_score = int(total_score * 0.90)
+
     total_score = max(5, min(95, total_score))
 
     # Recommendation

@@ -111,8 +111,8 @@ async def get_stock_chart(ticker: str, period: str = "1Y"):
     except Exception:
         pass
 
-    # Try marketdata.app first (higher rate limit)
-    if settings.marketdata_api_key:
+    # Try marketdata.app first for 1Y (higher rate limit), skip for ALL (limited history)
+    if settings.marketdata_api_key and period != "ALL":
         try:
             headers = {"Authorization": f"Token {settings.marketdata_api_key}"}
             async with httpx.AsyncClient(timeout=10.0) as client:

@@ -80,7 +80,7 @@ async def batch_analyze():
     # Get all earnings events this week (FUTURE ONLY)
     events = (
         sb.table("earnings_events")
-        .select("id, stock_id, report_date, stocks(ticker, company_name)")
+        .select("id, stock_id, report_date, stocks(ticker, company_name, market_cap, sector)")
         .gte("report_date", today)
         .lte("report_date", next_week)
         .order("report_date")
@@ -91,9 +91,34 @@ async def batch_analyze():
     future_events = [e for e in events.data if e.get("report_date", "") >= today]
     print(f"  Found {len(future_events)} earnings events from {today} to {next_week}")
 
+    # PRE-FILTER: Skip stocks that will obviously be AVOID
+    # Check earnings history count — need at least 2 quarters to predict
+    stock_ids = list(set(e["stock_id"] for e in future_events))
+    
+    # Get earnings history counts for all stocks in one query
+    history_counts = {}
+    for event in future_events:
+        sid = event["stock_id"]
+        if sid not in history_counts:
+            hist = (
+                sb.table("earnings_events")
+                .select("id")
+                .eq("stock_id", sid)
+                .lte("report_date", today)
+                .limit(3)
+                .execute()
+            )
+            history_counts[sid] = len(hist.data)
+
+    # Filter: only process stocks with enough history
+    eligible_events = [e for e in future_events if history_counts.get(e["stock_id"], 0) >= 2]
+    pre_filtered = len(future_events) - len(eligible_events)
+    print(f"  Pre-filtered: {pre_filtered} stocks with insufficient history")
+    print(f"  Processing: {len(eligible_events)} stocks\n")
+
     analyzed = 0
     skipped = 0
-    for event in future_events:
+    for event in eligible_events:
         stock = event.get("stocks") or {}
         ticker = stock.get("ticker", "???")
 
@@ -121,7 +146,7 @@ async def batch_analyze():
             skipped += 1
 
         # Rate limit (Finnhub: 60/min)
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(1.0)
 
     await client.aclose()
     print(f"\n✅ Analyzed {analyzed} stocks, skipped {skipped} (insufficient data)")

@@ -80,9 +80,9 @@ def generate_recommendation(score: int, mode: str, risk_score: int,
     Long-term mode: more conservative, needs stronger fundamentals
     """
     if mode == "trader":
-        if score >= 60 and direction_prob > 0.55 and risk_score < 70:
+        if score >= 55 and direction_prob > 0.50 and risk_score < 75:
             return "buy"
-        elif score < 35 or (direction_prob < 0.4 and risk_score > 60):
+        elif score < 35 or (direction_prob < 0.35 and risk_score > 60):
             return "sell"
         else:
             return "avoid"

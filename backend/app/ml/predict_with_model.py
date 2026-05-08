@@ -356,7 +356,7 @@ def compute_iv_signal(earnings: list, market_implied_move: float | None) -> dict
 def calculate_risk_score(beat_prob: float, direction_prob: float,
                          expected_move: float, volatility: float, beta: float,
                          operating_margin: float = 0, stock_price: float = 0,
-                         sector: str = "Unknown") -> int:
+                         sector: str = "Unknown", quality_score: int = 100) -> int:
     """
     Risk score 0-100 (higher = riskier).
     
@@ -364,29 +364,29 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     - Prediction uncertainty (are we guessing?)
     - Volatility (how wild are the moves?)
     - Downside potential
-    - Fundamental risk (unprofitable, penny stock, risky sector)
+    - Fundamental risk (unprofitable, stock price, sector)
+    - Stock quality (market cap, liquidity, analyst coverage, earnings consistency)
     
-    A $2.91 biotech burning cash should NEVER be "Low Risk"
-    regardless of model confidence.
+    Quality score flows directly into risk — low quality = high risk.
+    This naturally gates BUY recommendations via the risk < 60 threshold.
     """
-    # --- PREDICTION UNCERTAINTY (20%) ---
-    beat_uncertainty = 1 - abs(beat_prob - 0.5) * 2  # 0 at extremes, 1 at 50%
+    # --- PREDICTION UNCERTAINTY (15%) ---
+    beat_uncertainty = 1 - abs(beat_prob - 0.5) * 2
     dir_uncertainty = 1 - abs(direction_prob - 0.5) * 2
     uncertainty_risk = (beat_uncertainty + dir_uncertainty) / 2
 
-    # --- VOLATILITY (15%) ---
+    # --- VOLATILITY (10%) ---
     vol_risk = min(volatility / 10, 1.0)
 
     # --- BETA (5%) ---
     beta_risk = min(max((beta - 0.5) / 2, 0), 1.0)
 
-    # --- DOWNSIDE POTENTIAL (10%) ---
+    # --- DOWNSIDE POTENTIAL (5%) ---
     downside = max(-expected_move / 10, 0)
 
-    # --- FUNDAMENTAL RISK (30%) ---
-    # Unprofitable companies are inherently riskier
+    # --- FUNDAMENTAL RISK: MARGIN (15%) ---
     if operating_margin < -100:
-        margin_risk = 1.0  # Severely cash-burning
+        margin_risk = 1.0
     elif operating_margin < -50:
         margin_risk = 0.85
     elif operating_margin < -20:
@@ -396,18 +396,16 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     elif operating_margin < 10:
         margin_risk = 0.25
     else:
-        margin_risk = 0.1  # Profitable = low fundamental risk
+        margin_risk = 0.1
 
-    # --- STOCK PRICE RISK (20%) ---
-    # Smooth gradient: lower price = higher risk. No hard cutoffs.
-    # $1 stock → risk 1.0, $10 → 0.5, $50 → 0.1, $200+ → 0.0
+    # --- STOCK PRICE RISK (10%) ---
+    # Smooth gradient: lower price = higher risk
     if stock_price > 0:
         price_risk = max(0, min(1.0, 1.0 - (stock_price / 50)))
     else:
-        price_risk = 0.3  # Unknown price = moderate risk
+        price_risk = 0.3
 
-    # --- SECTOR RISK (15%) ---
-    # Biotech/pharma have binary outcomes (FDA approvals), inherently riskier
+    # --- SECTOR RISK (10%) ---
     high_risk_sectors = {"Biotechnology", "Pharmaceuticals"}
     moderate_risk_sectors = {"Energy", "Semiconductors"}
     if sector in high_risk_sectors:
@@ -417,15 +415,21 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     else:
         sector_risk = 0.2
 
+    # --- QUALITY RISK (30%) ---
+    # Inverted quality score: low quality = high risk
+    # quality_score 100 → quality_risk 0.0, quality_score 0 → quality_risk 1.0
+    quality_risk = max(0, min(1.0, 1.0 - (quality_score / 100)))
+
     # Weighted combination
     risk = (
         uncertainty_risk * 15 +
         vol_risk * 10 +
         beta_risk * 5 +
-        downside * 10 +
-        margin_risk * 25 +
-        price_risk * 20 +
-        sector_risk * 15
+        downside * 5 +
+        margin_risk * 15 +
+        price_risk * 10 +
+        sector_risk * 10 +
+        quality_risk * 30
     )
 
     return int(max(5, min(95, risk)))
@@ -448,29 +452,23 @@ def compute_quality_score(
     - price_score: saturates at $50
     - earnings_score: already 0-1 (quarters_with_data / 8)
 
-    Composite: weighted geometric mean so multiple weak signals compound.
+    Composite: weighted average with a compounding penalty for multiple weak factors.
     """
-    import math
-
     # Individual factor scores (smooth 0→1 gradients)
-    market_cap_score = min(1.0, max(0.0, market_cap / 10_000_000_000))
-    volume_score = min(1.0, max(0.0, avg_volume / 5_000_000))
-    coverage_score = min(1.0, max(0.0, analyst_count / 15))
-    price_score = min(1.0, max(0.0, stock_price / 50))
+    # Thresholds calibrated for the real stock universe (not just mega-caps)
+    market_cap_score = min(1.0, max(0.0, market_cap / 2_000_000_000))   # Saturates at $2B
+    volume_score = min(1.0, max(0.0, avg_volume / 2_000_000))           # Saturates at 2M shares/day
+    coverage_score = min(1.0, max(0.0, analyst_count / 10))             # Saturates at 10 analysts
+    price_score = min(1.0, max(0.0, stock_price / 30))                  # Saturates at $30
     earnings_score = min(1.0, max(0.0, earnings_consistency))
 
-    # Weighted geometric mean — multiple weak signals compound naturally
+    # Weighted arithmetic mean — one weak factor reduces score but doesn't destroy it
     # Weights: market_cap=0.30, volume=0.20, coverage=0.20, price=0.15, earnings=0.15
     weights = [0.30, 0.20, 0.20, 0.15, 0.15]
     scores = [market_cap_score, volume_score, coverage_score, price_score, earnings_score]
 
-    # Avoid log(0) by flooring at a small epsilon
-    epsilon = 0.001
-    scores_safe = [max(s, epsilon) for s in scores]
-
-    # Weighted geometric mean: exp(sum(w_i * ln(s_i)))
-    log_sum = sum(w * math.log(s) for w, s in zip(weights, scores_safe))
-    composite = math.exp(log_sum)
+    # Weighted average
+    composite = sum(w * s for w, s in zip(weights, scores))
 
     return int(max(0, min(100, composite * 100)))
 
@@ -736,16 +734,24 @@ async def fetch_enrichment_data(client: httpx.AsyncClient, ticker: str,
 
     # Analyst revisions
     revision_signal = 0
+    analyst_count = 0
     try:
         rec_data = await fetch_finnhub(client, "stock/recommendation", {"symbol": ticker})
-        if rec_data and isinstance(rec_data, list) and len(rec_data) >= 2:
+        if rec_data and isinstance(rec_data, list) and len(rec_data) >= 1:
             current = rec_data[0]
-            previous = rec_data[1]
-            curr_buy = current.get("buy", 0) + current.get("strongBuy", 0)
-            prev_buy = previous.get("buy", 0) + previous.get("strongBuy", 0)
-            curr_sell = current.get("sell", 0) + current.get("strongSell", 0)
-            prev_sell = previous.get("sell", 0) + previous.get("strongSell", 0)
-            revision_signal = (curr_buy - prev_buy) - (curr_sell - prev_sell)
+            # Total analyst count = sum of all recommendation categories
+            analyst_count = (
+                current.get("buy", 0) + current.get("strongBuy", 0) +
+                current.get("hold", 0) +
+                current.get("sell", 0) + current.get("strongSell", 0)
+            )
+            if len(rec_data) >= 2:
+                previous = rec_data[1]
+                curr_buy = current.get("buy", 0) + current.get("strongBuy", 0)
+                prev_buy = previous.get("buy", 0) + previous.get("strongBuy", 0)
+                curr_sell = current.get("sell", 0) + current.get("strongSell", 0)
+                prev_sell = previous.get("sell", 0) + previous.get("strongSell", 0)
+                revision_signal = (curr_buy - prev_buy) - (curr_sell - prev_sell)
     except Exception:
         pass
 
@@ -784,6 +790,7 @@ async def fetch_enrichment_data(client: httpx.AsyncClient, ticker: str,
         "profile": profile,
         "short_interest": min(short_interest, 50),
         "revision_signal": revision_signal,
+        "analyst_count": analyst_count,
         "revenue_beat_rate": revenue_beat_rate,
         "insider_signal": insider_signal,
     }
@@ -1113,12 +1120,22 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     high_52w = metrics.get("52WeekHigh", 0) or 0
     low_52w = metrics.get("52WeekLow", 0) or 0
     est_price = (high_52w + low_52w) / 2 if high_52w and low_52w else 0
-    
+
+    # Quality score — computed BEFORE risk so it feeds into risk calculation
+    profile_data = enrichment.get("profile") or {}
+    market_cap = profile_data.get("marketCapitalization", 0) * 1_000_000  # Finnhub returns in millions
+    avg_volume = metrics.get("10DayAverageTradingVolume", 0) * 1_000_000  # Returned in millions
+    analyst_count = enrichment.get("analyst_count", 0)
+    earnings_consistency = min(1.0, len(earnings) / 8)
+    quality_score = compute_quality_score(market_cap, avg_volume, analyst_count, est_price, earnings_consistency)
+
+    # Risk score — quality_score flows in as a major factor (30% weight)
     risk_score = calculate_risk_score(
         beat_prob, direction_prob, expected_move, volatility, beta,
         operating_margin=features.get("operating_margin", 0),
         stock_price=est_price,
         sector=sector,
+        quality_score=quality_score,
     )
 
     # --- TOTAL SCORE ---
@@ -1150,20 +1167,6 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
         fundamentals_strength * 10 +
         risk_bonus * 10
     )
-
-    # Quality score — smooth composite multiplier replaces hard-cutoff profitability penalty
-    # Gathers market cap, volume, analyst coverage, price, and earnings consistency
-    # to produce a 0-100 quality score that demotes low-quality stocks proportionally.
-    profile_data = enrichment.get("profile") or {}
-    market_cap = profile_data.get("marketCapitalization", 0) * 1_000_000  # Finnhub returns in millions
-    avg_volume = metrics.get("10DayAverageTradingVolume", 0) * 1_000_000  # Returned in millions
-
-    # Analyst count: sum of all recommendation categories from rec_data (already fetched in enrichment)
-    analyst_count = 0
-    earnings_consistency = min(1.0, len(earnings) / 8)
-
-    quality_score = compute_quality_score(market_cap, avg_volume, analyst_count, est_price, earnings_consistency)
-    total_score = int(total_score * (quality_score / 100))
 
     total_score = max(5, min(95, total_score))
 

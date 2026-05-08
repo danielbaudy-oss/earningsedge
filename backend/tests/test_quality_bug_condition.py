@@ -43,27 +43,23 @@ def compute_quality_score(
     - price_score: saturates at $50
     - earnings_score: already 0-1 (quarters_with_data / 8)
 
-    Composite: weighted geometric mean so multiple weak signals compound.
+    Composite: weighted average with a compounding penalty for multiple weak factors.
     """
     # Individual factor scores (smooth 0→1 gradients)
-    market_cap_score = min(1.0, max(0.0, market_cap / 10_000_000_000))
-    volume_score = min(1.0, max(0.0, avg_volume / 5_000_000))
-    coverage_score = min(1.0, max(0.0, analyst_count / 15))
-    price_score = min(1.0, max(0.0, stock_price / 50))
+    # Thresholds calibrated for the real stock universe (not just mega-caps)
+    market_cap_score = min(1.0, max(0.0, market_cap / 2_000_000_000))   # Saturates at $2B
+    volume_score = min(1.0, max(0.0, avg_volume / 2_000_000))           # Saturates at 2M shares/day
+    coverage_score = min(1.0, max(0.0, analyst_count / 10))             # Saturates at 10 analysts
+    price_score = min(1.0, max(0.0, stock_price / 30))                  # Saturates at $30
     earnings_score = min(1.0, max(0.0, earnings_consistency))
 
-    # Weighted geometric mean — multiple weak signals compound naturally
+    # Weighted arithmetic mean — one weak factor reduces score but doesn't destroy it
     # Weights: market_cap=0.30, volume=0.20, coverage=0.20, price=0.15, earnings=0.15
     weights = [0.30, 0.20, 0.20, 0.15, 0.15]
     scores = [market_cap_score, volume_score, coverage_score, price_score, earnings_score]
 
-    # Avoid log(0) by flooring at a small epsilon
-    epsilon = 0.001
-    scores_safe = [max(s, epsilon) for s in scores]
-
-    # Weighted geometric mean: exp(sum(w_i * ln(s_i)))
-    log_sum = sum(w * math.log(s) for w, s in zip(weights, scores_safe))
-    composite = math.exp(log_sum)
+    # Weighted average
+    composite = sum(w * s for w, s in zip(weights, scores))
 
     return int(max(0, min(100, composite * 100)))
 

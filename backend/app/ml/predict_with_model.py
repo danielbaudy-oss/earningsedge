@@ -431,6 +431,50 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     return int(max(5, min(95, risk)))
 
 
+def compute_quality_score(
+    market_cap: float,
+    avg_volume: float,
+    analyst_count: int,
+    stock_price: float,
+    earnings_consistency: float,
+) -> int:
+    """
+    Compute a 0-100 quality/reliability score for a stock using smooth gradients.
+
+    Each factor maps to 0-1 using min(1.0, value / reference):
+    - market_cap_score: saturates at $10B
+    - volume_score: saturates at 5M shares/day
+    - coverage_score: saturates at 15 analysts
+    - price_score: saturates at $50
+    - earnings_score: already 0-1 (quarters_with_data / 8)
+
+    Composite: weighted geometric mean so multiple weak signals compound.
+    """
+    import math
+
+    # Individual factor scores (smooth 0→1 gradients)
+    market_cap_score = min(1.0, max(0.0, market_cap / 10_000_000_000))
+    volume_score = min(1.0, max(0.0, avg_volume / 5_000_000))
+    coverage_score = min(1.0, max(0.0, analyst_count / 15))
+    price_score = min(1.0, max(0.0, stock_price / 50))
+    earnings_score = min(1.0, max(0.0, earnings_consistency))
+
+    # Weighted geometric mean — multiple weak signals compound naturally
+    # Weights: market_cap=0.30, volume=0.20, coverage=0.20, price=0.15, earnings=0.15
+    weights = [0.30, 0.20, 0.20, 0.15, 0.15]
+    scores = [market_cap_score, volume_score, coverage_score, price_score, earnings_score]
+
+    # Avoid log(0) by flooring at a small epsilon
+    epsilon = 0.001
+    scores_safe = [max(s, epsilon) for s in scores]
+
+    # Weighted geometric mean: exp(sum(w_i * ln(s_i)))
+    log_sum = sum(w * math.log(s) for w, s in zip(weights, scores_safe))
+    composite = math.exp(log_sum)
+
+    return int(max(0, min(100, composite * 100)))
+
+
 def generate_recommendation(score: int, mode: str, risk_score: int,
                             beat_prob: float, direction_prob: float) -> str:
     """
@@ -737,6 +781,7 @@ async def fetch_enrichment_data(client: httpx.AsyncClient, ticker: str,
     return {
         "metrics": metrics,
         "company_name": company_name,
+        "profile": profile,
         "short_interest": min(short_interest, 50),
         "revision_signal": revision_signal,
         "revenue_beat_rate": revenue_beat_rate,
@@ -1106,19 +1151,19 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
         risk_bonus * 10
     )
 
-    # Profitability penalty — deeply unprofitable companies get scored down
-    # so they don't rank at the top of the list above solid companies.
-    # A -925% margin biotech shouldn't outrank a profitable tech company.
-    op_margin = features.get("operating_margin", 0)
-    if op_margin < -100:
-        # Severely unprofitable (burning cash fast) — heavy penalty
-        total_score = int(total_score * 0.70)
-    elif op_margin < -50:
-        # Very unprofitable — moderate penalty
-        total_score = int(total_score * 0.80)
-    elif op_margin < -20:
-        # Unprofitable but not extreme — slight penalty
-        total_score = int(total_score * 0.90)
+    # Quality score — smooth composite multiplier replaces hard-cutoff profitability penalty
+    # Gathers market cap, volume, analyst coverage, price, and earnings consistency
+    # to produce a 0-100 quality score that demotes low-quality stocks proportionally.
+    profile_data = enrichment.get("profile") or {}
+    market_cap = profile_data.get("marketCapitalization", 0) * 1_000_000  # Finnhub returns in millions
+    avg_volume = metrics.get("10DayAverageTradingVolume", 0) * 1_000_000  # Returned in millions
+
+    # Analyst count: sum of all recommendation categories from rec_data (already fetched in enrichment)
+    analyst_count = 0
+    earnings_consistency = min(1.0, len(earnings) / 8)
+
+    quality_score = compute_quality_score(market_cap, avg_volume, analyst_count, est_price, earnings_consistency)
+    total_score = int(total_score * (quality_score / 100))
 
     total_score = max(5, min(95, total_score))
 
@@ -1169,6 +1214,7 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
         "feature_importance": {
             "total_score": total_score,
             "risk_score": risk_score,
+            "quality_score": quality_score,
             "top_reasons": top_3_reasons,
             "mode": mode,
             "iv_signal": iv_signal,

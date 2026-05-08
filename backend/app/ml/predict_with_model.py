@@ -338,30 +338,81 @@ def compute_iv_signal(earnings: list, market_implied_move: float | None) -> dict
 # ---------------------------------------------------------------------------
 
 def calculate_risk_score(beat_prob: float, direction_prob: float,
-                         expected_move: float, volatility: float, beta: float) -> int:
+                         expected_move: float, volatility: float, beta: float,
+                         operating_margin: float = 0, stock_price: float = 0,
+                         sector: str = "Unknown") -> int:
     """
     Risk score 0-100 (higher = riskier).
-    Considers uncertainty, volatility, and downside potential.
+    
+    Considers:
+    - Prediction uncertainty (are we guessing?)
+    - Volatility (how wild are the moves?)
+    - Downside potential
+    - Fundamental risk (unprofitable, penny stock, risky sector)
+    
+    A $2.91 biotech burning cash should NEVER be "Low Risk"
+    regardless of model confidence.
     """
-    # Uncertainty: how close to 50/50 are the predictions?
+    # --- PREDICTION UNCERTAINTY (20%) ---
     beat_uncertainty = 1 - abs(beat_prob - 0.5) * 2  # 0 at extremes, 1 at 50%
     dir_uncertainty = 1 - abs(direction_prob - 0.5) * 2
+    uncertainty_risk = (beat_uncertainty + dir_uncertainty) / 2
 
-    # Volatility component
-    vol_risk = min(volatility / 10, 1.0)  # Normalize to 0-1
+    # --- VOLATILITY (15%) ---
+    vol_risk = min(volatility / 10, 1.0)
 
-    # Beta component
+    # --- BETA (5%) ---
     beta_risk = min(max((beta - 0.5) / 2, 0), 1.0)
 
-    # Downside potential
-    downside = max(-expected_move / 10, 0)  # Negative expected move = risk
+    # --- DOWNSIDE POTENTIAL (10%) ---
+    downside = max(-expected_move / 10, 0)
 
+    # --- FUNDAMENTAL RISK (30%) ---
+    # Unprofitable companies are inherently riskier
+    if operating_margin < -100:
+        margin_risk = 1.0  # Severely cash-burning
+    elif operating_margin < -50:
+        margin_risk = 0.85
+    elif operating_margin < -20:
+        margin_risk = 0.65
+    elif operating_margin < 0:
+        margin_risk = 0.45
+    elif operating_margin < 10:
+        margin_risk = 0.25
+    else:
+        margin_risk = 0.1  # Profitable = low fundamental risk
+
+    # --- PENNY STOCK / MICRO-CAP RISK (10%) ---
+    # Low-priced stocks are more volatile, less liquid, more manipulable
+    if stock_price > 0 and stock_price < 2:
+        price_risk = 1.0
+    elif stock_price > 0 and stock_price < 5:
+        price_risk = 0.7
+    elif stock_price > 0 and stock_price < 10:
+        price_risk = 0.4
+    else:
+        price_risk = 0.1
+
+    # --- SECTOR RISK (10%) ---
+    # Biotech/pharma have binary outcomes (FDA approvals), inherently riskier
+    high_risk_sectors = {"Biotechnology", "Pharmaceuticals"}
+    moderate_risk_sectors = {"Energy", "Semiconductors"}
+    if sector in high_risk_sectors:
+        sector_risk = 0.8
+    elif sector in moderate_risk_sectors:
+        sector_risk = 0.5
+    else:
+        sector_risk = 0.2
+
+    # Weighted combination
     risk = (
-        beat_uncertainty * 25 +
-        dir_uncertainty * 25 +
-        vol_risk * 20 +
-        beta_risk * 15 +
-        downside * 15
+        uncertainty_risk * 20 +
+        vol_risk * 15 +
+        beta_risk * 5 +
+        downside * 10 +
+        margin_risk * 30 +
+        price_risk * 10 +
+        sector_risk * 10
     )
 
     return int(max(5, min(95, risk)))
@@ -1001,7 +1052,17 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     expected_move_t3 = round(expected_move_t3, 1)
 
     # Risk score
-    risk_score = calculate_risk_score(beat_prob, direction_prob, expected_move, volatility, beta)
+    # Estimate current stock price from 52-week range
+    high_52w = metrics.get("52WeekHigh", 0) or 0
+    low_52w = metrics.get("52WeekLow", 0) or 0
+    est_price = (high_52w + low_52w) / 2 if high_52w and low_52w else 0
+    
+    risk_score = calculate_risk_score(
+        beat_prob, direction_prob, expected_move, volatility, beta,
+        operating_margin=features.get("operating_margin", 0),
+        stock_price=est_price,
+        sector=sector,
+    )
 
     # --- TOTAL SCORE ---
     # Current signals (40%) + Beat probability (20%) + Direction (20%) +

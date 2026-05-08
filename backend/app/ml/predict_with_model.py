@@ -280,20 +280,16 @@ def compute_direction_from_current_signals(
     )
 
     # --- "PRICED FOR PERFECTION" DAMPENING ---
-    # When a stock has run up massively, expectations are sky-high.
-    # Even a beat often leads to a sell-off ("buy the rumor, sell the news").
-    # UI example: +69% in 13 weeks, beat earnings, still dropped -7%.
-    # Dampen upside probability for stocks that have already run hard.
-    if momentum_13w > 50:
-        # Extreme run-up (>50% in 13 weeks) — heavily dampen direction
-        # The market has already priced in a beat; upside is limited
-        direction_prob = direction_prob * 0.6 + 0.45 * 0.4  # Pull toward 45% (slight bearish)
-    elif momentum_13w > 30:
-        # Strong run-up — moderate dampening
-        direction_prob = direction_prob * 0.75 + 0.48 * 0.25  # Pull toward 48%
-    elif momentum_13w > 20:
-        # Solid run-up — slight dampening
-        direction_prob = direction_prob * 0.85 + 0.50 * 0.15  # Pull toward 50%
+    # Smooth gradient: the more a stock has run up, the more direction gets
+    # pulled toward neutral. No hard thresholds.
+    # Formula: dampening_strength = min(1.0, max(0, momentum_13w - 10) / 60)
+    # At 10% run-up: no dampening. At 70%: full dampening (pull to 0.45).
+    # This is gradual — 20% run-up gets slight dampening, 50% gets heavy.
+    if momentum_13w > 10:
+        dampening_strength = min(1.0, (momentum_13w - 10) / 60)
+        # Pull direction toward 0.47 (slightly bearish) proportional to strength
+        target = 0.47
+        direction_prob = direction_prob * (1 - dampening_strength * 0.4) + target * (dampening_strength * 0.4)
 
     # Clamp to reasonable bounds
     return max(0.10, min(0.90, direction_prob))

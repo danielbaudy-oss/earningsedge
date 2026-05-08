@@ -398,18 +398,15 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     else:
         margin_risk = 0.1  # Profitable = low fundamental risk
 
-    # --- PENNY STOCK / MICRO-CAP RISK (20%) ---
-    # Low-priced stocks are more volatile, less liquid, more manipulable
-    if stock_price > 0 and stock_price < 2:
-        price_risk = 1.0
-    elif stock_price > 0 and stock_price < 5:
-        price_risk = 0.7
-    elif stock_price > 0 and stock_price < 10:
-        price_risk = 0.4
+    # --- STOCK PRICE RISK (20%) ---
+    # Smooth gradient: lower price = higher risk. No hard cutoffs.
+    # $1 stock → risk 1.0, $10 → 0.5, $50 → 0.1, $200+ → 0.0
+    if stock_price > 0:
+        price_risk = max(0, min(1.0, 1.0 - (stock_price / 50)))
     else:
-        price_risk = 0.0
+        price_risk = 0.3  # Unknown price = moderate risk
 
-    # --- SECTOR RISK (10%) ---
+    # --- SECTOR RISK (15%) ---
     # Biotech/pharma have binary outcomes (FDA approvals), inherently riskier
     high_risk_sectors = {"Biotechnology", "Pharmaceuticals"}
     moderate_risk_sectors = {"Energy", "Semiconductors"}
@@ -443,10 +440,8 @@ def generate_recommendation(score: int, mode: str, risk_score: int,
     Long-term mode: more conservative, needs stronger fundamentals
     
     Key rules:
-    - NEVER recommend BUY if we think earnings will be missed
+    - NEVER recommend BUY if we think earnings will be missed (beat_prob < 0.45)
     - NEVER recommend BUY for high-risk stocks (risk >= 60)
-    - NEVER recommend BUY for penny stocks (price < $5)
-    - Heavily unprofitable companies (margin < -100%) need extra conviction
     """
     if mode == "trader":
         if score >= 55 and direction_prob > 0.50 and risk_score < 60 and beat_prob > 0.45:
@@ -1129,11 +1124,6 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
 
     # Recommendation
     recommendation = generate_recommendation(total_score, mode, risk_score, beat_prob, direction_prob)
-    
-    # Hard block: no BUY for penny stocks (< $5)
-    # These are too risky for retail investors regardless of model confidence
-    if recommendation == "buy" and est_price > 0 and est_price < 5:
-        recommendation = "avoid"
 
     # Explanation (now includes IV signal)
     explanation, top_3_reasons = build_explanation(

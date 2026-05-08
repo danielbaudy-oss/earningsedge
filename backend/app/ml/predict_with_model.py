@@ -370,7 +370,7 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     Quality score flows directly into risk — low quality = high risk.
     This naturally gates BUY recommendations via the risk < 60 threshold.
     """
-    # --- PREDICTION UNCERTAINTY (15%) ---
+    # --- PREDICTION UNCERTAINTY (10%) ---
     beat_uncertainty = 1 - abs(beat_prob - 0.5) * 2
     dir_uncertainty = 1 - abs(direction_prob - 0.5) * 2
     uncertainty_risk = (beat_uncertainty + dir_uncertainty) / 2
@@ -415,21 +415,20 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     else:
         sector_risk = 0.2
 
-    # --- QUALITY RISK (30%) ---
+    # --- QUALITY RISK (35%) ---
     # Inverted quality score: low quality = high risk
-    # quality_score 100 → quality_risk 0.0, quality_score 0 → quality_risk 1.0
     quality_risk = max(0, min(1.0, 1.0 - (quality_score / 100)))
 
-    # Weighted combination
+    # Weighted combination (totals 100)
     risk = (
-        uncertainty_risk * 15 +
+        uncertainty_risk * 10 +
         vol_risk * 10 +
         beta_risk * 5 +
         downside * 5 +
         margin_risk * 15 +
         price_risk * 10 +
         sector_risk * 10 +
-        quality_risk * 30
+        quality_risk * 35
     )
 
     return int(max(5, min(95, risk)))

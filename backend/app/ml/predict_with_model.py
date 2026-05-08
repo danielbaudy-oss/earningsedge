@@ -379,14 +379,14 @@ def generate_recommendation(score: int, mode: str, risk_score: int,
     That's a contradiction — you don't buy into an expected miss.
     """
     if mode == "trader":
-        if score >= 55 and direction_prob > 0.50 and risk_score < 75 and beat_prob > 0.45:
+        if score >= 55 and direction_prob > 0.50 and risk_score < 60 and beat_prob > 0.45:
             return "buy"
         elif score < 35 or (direction_prob < 0.35 and risk_score > 60):
             return "sell"
         else:
             return "avoid"
     else:  # longterm
-        if score >= 70 and beat_prob > 0.6 and risk_score < 55:
+        if score >= 70 and beat_prob > 0.6 and risk_score < 50:
             return "buy"
         elif score < 30 or beat_prob < 0.35:
             return "sell"
@@ -721,6 +721,18 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     features["avg_beat_magnitude"] = beat_consistency["avg_beat_magnitude"]
     features["beat_trend"] = beat_consistency["beat_trend"]
     features["beat_consistency_score"] = beat_consistency["consistency_score"]
+
+    # Sector encoding — model learns sector-specific reaction patterns
+    stock_data = sb.table("stocks").select("sector").eq("id", stock_id).execute()
+    sector = (stock_data.data[0].get("sector") or "Unknown") if stock_data.data else "Unknown"
+    features["sector_biotech"] = 1 if sector == "Biotechnology" else 0
+    features["sector_tech"] = 1 if sector == "Technology" else 0
+    features["sector_pharma"] = 1 if sector == "Pharmaceuticals" else 0
+    features["sector_financial"] = 1 if sector == "Financial Services" else 0
+    features["sector_energy"] = 1 if sector == "Energy" else 0
+    features["sector_retail"] = 1 if sector == "Retail" else 0
+    features["sector_healthcare"] = 1 if sector == "Health Care" else 0
+    features["sector_semiconductor"] = 1 if sector == "Semiconductors" else 0
 
     # Fetch enrichment data
     enrichment = await fetch_enrichment_data(client, ticker, stock_id, earnings)

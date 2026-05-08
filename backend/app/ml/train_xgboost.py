@@ -143,7 +143,10 @@ async def load_training_data() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np
     sb = get_supabase()
 
     # Get all stocks that have enough history
-    stocks = sb.table("stocks").select("id, ticker").execute()
+    stocks = sb.table("stocks").select("id, ticker, sector").execute()
+
+    # Build sector lookup
+    sector_map = {s["id"]: s.get("sector") or "Unknown" for s in stocks.data}
 
     all_features = []
     y_beat = []
@@ -170,6 +173,9 @@ async def load_training_data() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np
             skipped += 1
             continue
 
+        # Get sector for this stock (from pre-fetched map)
+        sector = sector_map.get(stock["id"], "Unknown")
+
         # Build features for each event (except the oldest ones used as history)
         for i in range(len(earnings) - 2):
             event = earnings[i]
@@ -184,6 +190,17 @@ async def load_training_data() -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np
             features = build_features_from_history(earnings, i)
             if features is None:
                 continue
+
+            # Sector encoding — the model learns sector-specific patterns
+            # e.g., biotech moves less on EPS beats, tech moves more
+            features["sector_biotech"] = 1 if sector == "Biotechnology" else 0
+            features["sector_tech"] = 1 if sector == "Technology" else 0
+            features["sector_pharma"] = 1 if sector == "Pharmaceuticals" else 0
+            features["sector_financial"] = 1 if sector == "Financial Services" else 0
+            features["sector_energy"] = 1 if sector == "Energy" else 0
+            features["sector_retail"] = 1 if sector == "Retail" else 0
+            features["sector_healthcare"] = 1 if sector == "Health Care" else 0
+            features["sector_semiconductor"] = 1 if sector == "Semiconductors" else 0
 
             # Set live-metric features to 0 for training
             # These will be filled at prediction time with current data

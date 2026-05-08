@@ -382,7 +382,7 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     else:
         margin_risk = 0.1  # Profitable = low fundamental risk
 
-    # --- PENNY STOCK / MICRO-CAP RISK (10%) ---
+    # --- PENNY STOCK / MICRO-CAP RISK (20%) ---
     # Low-priced stocks are more volatile, less liquid, more manipulable
     if stock_price > 0 and stock_price < 2:
         price_risk = 1.0
@@ -391,7 +391,7 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
     elif stock_price > 0 and stock_price < 10:
         price_risk = 0.4
     else:
-        price_risk = 0.1
+        price_risk = 0.0
 
     # --- SECTOR RISK (10%) ---
     # Biotech/pharma have binary outcomes (FDA approvals), inherently riskier
@@ -406,13 +406,13 @@ def calculate_risk_score(beat_prob: float, direction_prob: float,
 
     # Weighted combination
     risk = (
-        uncertainty_risk * 20 +
-        vol_risk * 15 +
+        uncertainty_risk * 15 +
+        vol_risk * 10 +
         beta_risk * 5 +
         downside * 10 +
-        margin_risk * 30 +
-        price_risk * 10 +
-        sector_risk * 10
+        margin_risk * 25 +
+        price_risk * 20 +
+        sector_risk * 15
     )
 
     return int(max(5, min(95, risk)))

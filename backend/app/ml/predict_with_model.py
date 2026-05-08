@@ -471,26 +471,26 @@ def compute_quality_score(
 def generate_recommendation(score: int, mode: str, risk_score: int,
                             beat_prob: float, direction_prob: float) -> str:
     """
-    Generate Buy/Hold/Avoid based on score and mode.
-
-    Trader mode: more aggressive, lower threshold for buy
-    Long-term mode: more conservative, needs stronger fundamentals
+    Generate Buy/Hold/Avoid purely from the total score.
     
-    Key rules:
-    - NEVER recommend BUY if we think earnings will be missed (beat_prob < 0.45)
-    - NEVER recommend BUY for high-risk stocks (risk >= 60)
+    Risk already feeds into the score via risk_bonus (100-risk)/100.
+    Quality already feeds into risk via quality_risk.
+    Beat probability already feeds into the score.
+    
+    No separate gates or thresholds — the score IS the decision.
+    Higher score = more confident recommendation.
     """
     if mode == "trader":
-        if score >= 55 and direction_prob > 0.50 and risk_score < 60 and beat_prob > 0.45:
+        if score >= 55 and direction_prob > 0.50:
             return "buy"
-        elif score < 35 or (direction_prob < 0.35 and risk_score > 60):
+        elif score < 35:
             return "sell"
         else:
             return "avoid"
     else:  # longterm
-        if score >= 70 and beat_prob > 0.6 and risk_score < 50:
+        if score >= 65 and beat_prob > 0.55:
             return "buy"
-        elif score < 30 or beat_prob < 0.35:
+        elif score < 30:
             return "sell"
         else:
             return "avoid"
@@ -1156,11 +1156,11 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
     signals_bonus = max(0.1, min(0.9, signals_bonus))
 
     total_score = int(
-        signals_bonus * 40 +
-        beat_prob * 20 +
-        direction_prob * 20 +
+        signals_bonus * 30 +
+        beat_prob * 15 +
+        direction_prob * 15 +
         fundamentals_strength * 10 +
-        risk_bonus * 10
+        risk_bonus * 30
     )
 
     total_score = max(5, min(95, total_score))

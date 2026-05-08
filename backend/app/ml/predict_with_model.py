@@ -445,6 +445,7 @@ def generate_recommendation(score: int, mode: str, risk_score: int,
     Key rules:
     - NEVER recommend BUY if we think earnings will be missed
     - NEVER recommend BUY for high-risk stocks (risk >= 60)
+    - NEVER recommend BUY for penny stocks (price < $5)
     - Heavily unprofitable companies (margin < -100%) need extra conviction
     """
     if mode == "trader":
@@ -1128,6 +1129,11 @@ async def predict_stock(client: httpx.AsyncClient, ticker: str, stock_id: int,
 
     # Recommendation
     recommendation = generate_recommendation(total_score, mode, risk_score, beat_prob, direction_prob)
+    
+    # Hard block: no BUY for penny stocks (< $5)
+    # These are too risky for retail investors regardless of model confidence
+    if recommendation == "buy" and est_price > 0 and est_price < 5:
+        recommendation = "avoid"
 
     # Explanation (now includes IV signal)
     explanation, top_3_reasons = build_explanation(

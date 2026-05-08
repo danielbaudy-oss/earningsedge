@@ -25,34 +25,52 @@ export default function PriceChartInner({ prices, earningsDates = [], period = "
   // Convert earnings dates (YYYY-MM-DD) to timestamps
   const earningsTimestamps = earningsDates.map((d) => new Date(d + "T00:00:00").getTime());
 
-  // Build chart data with numeric index as x-axis
-  const seenMonths = new Set<string>();
+  // Build chart data with labels based on period
+  const seenLabels = new Set<string>();
   const chartData = prices.map((p, idx) => {
-    const month = new Date(p.date).toLocaleDateString("en-US", { month: "short" });
-    const showLabel = !seenMonths.has(month);
-    seenMonths.add(month);
-    return { ...p, idx, monthLabel: showLabel ? month : "" };
+    let label = "";
+
+    if (period === "ALL") {
+      // For ALL: show years only
+      const year = new Date(p.date).getFullYear().toString();
+      if (!seenLabels.has(year)) {
+        seenLabels.add(year);
+        label = year;
+      }
+    } else {
+      // For 1Y: show months
+      const month = new Date(p.date).toLocaleDateString("en-US", { month: "short" });
+      if (!seenLabels.has(month)) {
+        seenLabels.add(month);
+        label = month;
+      }
+    }
+
+    return { ...p, idx, label };
   });
 
   // Find data indices closest to each earnings date (within 5 days)
+  // Only show earnings lines in 1Y view (too cluttered in ALL)
   const earningsIndices: number[] = [];
-  for (const earningsTs of earningsTimestamps) {
-    let closestIdx = -1;
-    let closestDist = Infinity;
-    for (let i = 0; i < prices.length; i++) {
-      const dist = Math.abs(prices[i].date - earningsTs);
-      if (dist < closestDist && dist < 5 * 24 * 60 * 60 * 1000) {
-        closestDist = dist;
-        closestIdx = i;
+  if (period === "1Y") {
+    for (const earningsTs of earningsTimestamps) {
+      let closestIdx = -1;
+      let closestDist = Infinity;
+      for (let i = 0; i < prices.length; i++) {
+        const dist = Math.abs(prices[i].date - earningsTs);
+        if (dist < closestDist && dist < 5 * 24 * 60 * 60 * 1000) {
+          closestDist = dist;
+          closestIdx = i;
+        }
       }
-    }
-    if (closestIdx >= 0) {
-      earningsIndices.push(closestIdx);
+      if (closestIdx >= 0) {
+        earningsIndices.push(closestIdx);
+      }
     }
   }
 
   return (
-    <div className="mt-4">
+    <div>
       <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
         <span>{period === "ALL" ? "All time" : "1Y"} price</span>
         <span className={isUp ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
@@ -68,7 +86,7 @@ export default function PriceChartInner({ prices, earningsDates = [], period = "
             axisLine={false}
             tickLine={false}
             tick={{ fontSize: 10, fill: "#9ca3af" }}
-            tickFormatter={(idx: number) => chartData[idx]?.monthLabel || ""}
+            tickFormatter={(idx: number) => chartData[idx]?.label || ""}
             interval={0}
           />
           <Tooltip
@@ -78,12 +96,13 @@ export default function PriceChartInner({ prices, earningsDates = [], period = "
               const point = chartData[idx];
               if (!point) return "";
               return new Date(point.date).toLocaleDateString("en-US", {
+                year: "numeric",
                 month: "short",
                 day: "numeric",
               });
             }}
           />
-          {/* Earnings report date vertical lines */}
+          {/* Earnings report date vertical lines (1Y only) */}
           {earningsIndices.map((idx, i) => (
             <ReferenceLine
               key={`earnings-${i}`}

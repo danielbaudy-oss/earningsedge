@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getStockChart } from "@/lib/api";
 import dynamic from "next/dynamic";
@@ -11,9 +12,11 @@ interface PriceChartProps {
 }
 
 export function PriceChart({ ticker }: PriceChartProps) {
+  const [period, setPeriod] = useState<"1Y" | "ALL">("1Y");
+
   const { data, isLoading } = useQuery({
-    queryKey: ["chart", ticker],
-    queryFn: () => getStockChart(ticker),
+    queryKey: ["chart", ticker, period],
+    queryFn: () => getStockChart(ticker, period),
     staleTime: 300000,
   });
 
@@ -28,5 +31,27 @@ export function PriceChart({ ticker }: PriceChartProps) {
     return null;
   }
 
-  return <ChartInner prices={prices} earningsDates={earningsDates} />;
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-1 mb-1">
+        <button
+          onClick={() => setPeriod("1Y")}
+          className={`px-2 py-0.5 text-xs rounded ${
+            period === "1Y" ? "bg-gray-900 text-white" : "text-gray-400 hover:text-gray-600"
+          }`}
+        >
+          1Y
+        </button>
+        <button
+          onClick={() => setPeriod("ALL")}
+          className={`px-2 py-0.5 text-xs rounded ${
+            period === "ALL" ? "bg-gray-900 text-white" : "text-gray-400 hover:text-gray-600"
+          }`}
+        >
+          All
+        </button>
+      </div>
+      <ChartInner prices={prices} earningsDates={earningsDates} period={period} />
+    </div>
+  );
 }

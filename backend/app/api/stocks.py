@@ -75,8 +75,8 @@ async def get_stock(ticker: str):
 
 
 @router.get("/{ticker}/chart")
-async def get_stock_chart(ticker: str):
-    """Get YTD price history for a stock chart. Tries marketdata.app first, Polygon as fallback.
+async def get_stock_chart(ticker: str, period: str = "1Y"):
+    """Get price history for a stock chart. Supports 1Y and ALL periods.
     Also returns past earnings report dates for chart annotations."""
     import httpx
     from datetime import date, timedelta
@@ -84,7 +84,10 @@ async def get_stock_chart(ticker: str):
     settings = get_settings()
 
     today = date.today()
-    from_date = (today - timedelta(days=365)).isoformat()
+    if period == "ALL":
+        from_date = "2015-01-01"  # Go back ~10 years
+    else:
+        from_date = (today - timedelta(days=365)).isoformat()
     to_date = today.isoformat()
 
     # Get earnings dates for this stock (within chart range)

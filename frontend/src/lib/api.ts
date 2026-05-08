@@ -21,8 +21,8 @@ export async function getStock(ticker: string): Promise<StockDetail> {
   return data;
 }
 
-export async function getStockChart(ticker: string): Promise<{ prices: { date: number; price: number }[]; earnings_dates?: string[] }> {
-  const { data } = await api.get(`/stocks/${ticker}/chart`);
+export async function getStockChart(ticker: string, period: string = "1Y"): Promise<{ prices: { date: number; price: number }[]; earnings_dates?: string[] }> {
+  const { data } = await api.get(`/stocks/${ticker}/chart`, { params: { period } });
   return data;
 }
 
